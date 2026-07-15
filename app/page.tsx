@@ -525,6 +525,143 @@ function normalizeVoiceCommand(value: string) {
     .toLowerCase();
 }
 
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseSpokenNumber(value: string) {
+  const normalized = normalizeVoiceCommand(value).trim();
+  const numericValue = Number(normalized);
+
+  if (Number.isInteger(numericValue) && numericValue > 0) {
+    return numericValue;
+  }
+
+  const numbers: Record<string, number> = {
+    um: 1,
+    uma: 1,
+    primeiro: 1,
+    dois: 2,
+    duas: 2,
+    tres: 3,
+    quatro: 4,
+    cinco: 5,
+    seis: 6,
+    sete: 7,
+    oito: 8,
+    nove: 9,
+    dez: 10,
+    onze: 11,
+    doze: 12,
+    treze: 13,
+    quatorze: 14,
+    catorze: 14,
+    quinze: 15,
+    dezesseis: 16,
+    dezassete: 17,
+    dezessete: 17,
+    dezoito: 18,
+    dezenove: 19,
+    vinte: 20,
+    trinta: 30,
+  };
+
+  if (numbers[normalized]) {
+    return numbers[normalized];
+  }
+
+  if (normalized.startsWith("vinte e ")) {
+    return 20 + (numbers[normalized.replace("vinte e ", "")] ?? 0);
+  }
+
+  if (normalized.startsWith("trinta e ")) {
+    return 30 + (numbers[normalized.replace("trinta e ", "")] ?? 0);
+  }
+
+  return null;
+}
+
+function parseSpokenDateParts(value: string) {
+  const normalized = normalizeVoiceCommand(value)
+    .replace(/[.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const today = startOfToday();
+  const months: Record<string, number> = {
+    janeiro: 1,
+    fevereiro: 2,
+    marco: 3,
+    março: 3,
+    abril: 4,
+    maio: 5,
+    junho: 6,
+    julho: 7,
+    agosto: 8,
+    setembro: 9,
+    outubro: 10,
+    novembro: 11,
+    dezembro: 12,
+  };
+
+  if (normalized === "hoje") {
+    return { day: today.getDate(), month: today.getMonth() + 1, year: today.getFullYear() };
+  }
+
+  if (normalized === "amanha" || normalized === "amanhã") {
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return { day: tomorrow.getDate(), month: tomorrow.getMonth() + 1, year: tomorrow.getFullYear() };
+  }
+
+  const slashMatch = normalized.match(/^(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{4}))?$/);
+  if (slashMatch) {
+    return {
+      day: Number(slashMatch[1]),
+      month: Number(slashMatch[2]),
+      year: slashMatch[3] ? Number(slashMatch[3]) : today.getFullYear(),
+    };
+  }
+
+  const textMatch = normalized.match(/^(.+?) de ([a-zç]+)(?: de (\d{4}))?$/);
+  if (textMatch) {
+    const day = parseSpokenNumber(textMatch[1]);
+    const month = months[textMatch[2]];
+
+    if (day && month) {
+      return {
+        day,
+        month,
+        year: textMatch[3] ? Number(textMatch[3]) : today.getFullYear(),
+      };
+    }
+  }
+
+  return null;
+}
+
+function parseSpokenReminderDate(value: string) {
+  const parts = parseSpokenDateParts(value);
+
+  if (!parts || parts.day < 1 || parts.day > 31 || parts.month < 1 || parts.month > 12) {
+    return null;
+  }
+
+  return formatDateInputValue(new Date(parts.year, parts.month - 1, parts.day));
+}
+
+function parseSpokenBirthdayDate(value: string) {
+  const parts = parseSpokenDateParts(value);
+
+  if (!parts || parts.day < 1 || parts.day > 31 || parts.month < 1 || parts.month > 12) {
+    return null;
+  }
+
+  return `${String(parts.day).padStart(2, "0")}/${String(parts.month).padStart(2, "0")}`;
+}
+
 export default function HomePage() {
   const [appState, setAppState] = useState<AppState>(defaultState);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
@@ -842,51 +979,37 @@ export default function HomePage() {
     });
   }
 
-  function runVoiceCommand(transcript: string) {
-    const command = normalizeVoiceCommand(transcript);
-
-    if (command.includes("emergencia") || command.includes("socorro") || command.includes("ajuda")) {
-      setShowEmergency(true);
-      setVoiceMessage("Estou abrindo a emergencia.");
+  function speakAssistant(message: string, onDone?: () => void) {
+    if (!("speechSynthesis" in window)) {
+      onDone?.();
       return;
     }
 
-    if (command.includes("calendario") && command.includes("lembrete")) {
-      setProfileModal("reminderCalendar");
-      setVoiceMessage("Vou te levar para o calendario de lembretes.");
-      return;
-    }
-
-    if (command.includes("calendario") && command.includes("aniversario")) {
-      setProfileModal("birthdayCalendar");
-      setVoiceMessage("Vou te levar para o calendario de aniversarios.");
-      return;
-    }
-
-    if (command.includes("lembrete")) {
-      setProfileModal("reminder");
-      setVoiceMessage("Beleza, vamos criar um lembrete.");
-      return;
-    }
-
-    if (command.includes("aniversario")) {
-      setProfileModal("birthday");
-      setVoiceMessage("Certo, vamos cadastrar um aniversario.");
-      return;
-    }
-
-    setVoiceMessage("Eu nao entendi ainda. Tente falar: adicionar lembrete.");
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = "pt-BR";
+    utterance.rate = 1;
+    utterance.pitch = 1.05;
+    utterance.onend = () => onDone?.();
+    utterance.onerror = () => onDone?.();
+    window.speechSynthesis.speak(utterance);
   }
 
-  function handleVoiceAssistant() {
-    setVoiceMessage("Estou tentando abrir o microfone...");
+  function showAssistantMessage(message: string, shouldSpeak = true) {
+    setVoiceMessage(message);
 
+    if (shouldSpeak) {
+      speakAssistant(message);
+    }
+  }
+
+  function startVoiceRecognition(onTranscript: (transcript: string) => void) {
     const speechWindow = window as SpeechRecognitionWindow;
     const SpeechRecognition =
       speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setVoiceMessage("Eu nao consigo ouvir neste navegador. Use os botoes + ou tente abrir no Chrome.");
+      showAssistantMessage("Eu nao consigo ouvir neste navegador. Use os botoes + ou tente abrir no Chrome.");
       return;
     }
 
@@ -894,14 +1017,11 @@ export default function HomePage() {
     recognition.lang = "pt-BR";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    recognition.onstart = () => {
-      setIsListening(true);
-      setVoiceMessage("Estou ouvindo. Pode falar, por exemplo: adicionar lembrete.");
-    };
+    recognition.onstart = () => setIsListening(true);
     recognition.onend = () => setIsListening(false);
     recognition.onerror = (event) => {
       setIsListening(false);
-      setVoiceMessage(
+      showAssistantMessage(
         event.error === "not-allowed" || event.error === "service-not-allowed"
           ? "Eu nao tenho permissao para usar o microfone. Libere o acesso ou use os botoes +."
           : "Nao consegui ouvir direito. Tente de novo ou use os botoes +.",
@@ -909,15 +1029,177 @@ export default function HomePage() {
     };
     recognition.onresult = (event) => {
       const transcript = event.results[0]?.[0]?.transcript ?? "";
-      runVoiceCommand(transcript);
+      onTranscript(transcript);
     };
 
     try {
       recognition.start();
     } catch {
       setIsListening(false);
-      setVoiceMessage("Nao consegui iniciar o microfone aqui. Tente no Chrome ou use os botoes +.");
+      showAssistantMessage("Nao consegui iniciar o microfone aqui. Tente no Chrome ou use os botoes +.");
     }
+  }
+
+  function askAssistant(message: string, onTranscript: (transcript: string) => void) {
+    setVoiceMessage(message);
+    speakAssistant(message, () => {
+      setVoiceMessage("Estou ouvindo...");
+      startVoiceRecognition(onTranscript);
+    });
+  }
+
+  function addReminderFromVoice(text: string, date: string) {
+    if (!activeResident) {
+      showAssistantMessage("Escolha um perfil antes de criar lembretes por voz.");
+      return;
+    }
+
+    setAppState((current) => ({
+      ...current,
+      reminders: [
+        {
+          id: crypto.randomUUID(),
+          residentId: activeResident.id,
+          text,
+          date,
+          icon: inferReminderIcon({
+            id: "voice",
+            residentId: activeResident.id,
+            text,
+            date,
+          }),
+        },
+        ...current.reminders,
+      ],
+    }));
+    showAssistantMessage(`Pronto, adicionei o lembrete: ${text}.`);
+  }
+
+  function askReminderDate(text: string) {
+    askAssistant("Quando devo te lembrar?", (dateTranscript) => {
+      const date = parseSpokenReminderDate(dateTranscript);
+
+      if (!date) {
+        askAssistant("Nao entendi a data. Pode falar algo como amanhã, vinte de julho ou quinze de agosto?", (retry) => {
+          const retryDate = parseSpokenReminderDate(retry);
+
+          if (!retryDate) {
+            showAssistantMessage("Ainda nao entendi a data. Abri o formulario para voce completar.");
+            setProfileModal("reminder");
+            return;
+          }
+
+          addReminderFromVoice(text, retryDate);
+        });
+        return;
+      }
+
+      addReminderFromVoice(text, date);
+    });
+  }
+
+  function startReminderVoiceFlow() {
+    askAssistant("Qual é o lembrete?", (textTranscript) => {
+      const text = textTranscript.trim();
+
+      if (!text) {
+        showAssistantMessage("Nao consegui entender o lembrete. Tente de novo pelo botao de microfone.");
+        return;
+      }
+
+      askReminderDate(text);
+    });
+  }
+
+  function addBirthdayFromVoice(name: string, date: string) {
+    setAppState((current) => ({
+      ...current,
+      birthdays: [
+        {
+          id: crypto.randomUUID(),
+          name,
+          date,
+        },
+        ...current.birthdays,
+      ],
+    }));
+    showAssistantMessage(`Pronto, cadastrei o aniversario de ${name}.`);
+  }
+
+  function askBirthdayDate(name: string) {
+    askAssistant(`Quando é o aniversario de ${name}?`, (dateTranscript) => {
+      const date = parseSpokenBirthdayDate(dateTranscript);
+
+      if (!date) {
+        askAssistant("Nao entendi a data. Pode falar algo como quinze de agosto ou vinte barra sete?", (retry) => {
+          const retryDate = parseSpokenBirthdayDate(retry);
+
+          if (!retryDate) {
+            showAssistantMessage("Ainda nao entendi a data. Abri o formulario para voce completar.");
+            setProfileModal("birthday");
+            return;
+          }
+
+          addBirthdayFromVoice(name, retryDate);
+        });
+        return;
+      }
+
+      addBirthdayFromVoice(name, date);
+    });
+  }
+
+  function startBirthdayVoiceFlow() {
+    askAssistant("De quem é o aniversario?", (nameTranscript) => {
+      const name = nameTranscript.trim();
+
+      if (!name) {
+        showAssistantMessage("Nao consegui entender o nome. Tente de novo pelo botao de microfone.");
+        return;
+      }
+
+      askBirthdayDate(name);
+    });
+  }
+
+  function runVoiceCommand(transcript: string) {
+    const command = normalizeVoiceCommand(transcript);
+
+    if (command.includes("emergencia") || command.includes("socorro") || command.includes("ajuda")) {
+      setShowEmergency(true);
+      showAssistantMessage("Estou abrindo a emergencia.");
+      return;
+    }
+
+    if (command.includes("calendario") && command.includes("lembrete")) {
+      setProfileModal("reminderCalendar");
+      showAssistantMessage("Vou te levar para o calendario de lembretes.");
+      return;
+    }
+
+    if (command.includes("calendario") && command.includes("aniversario")) {
+      setProfileModal("birthdayCalendar");
+      showAssistantMessage("Vou te levar para o calendario de aniversarios.");
+      return;
+    }
+
+    if (command.includes("lembrete")) {
+      startReminderVoiceFlow();
+      return;
+    }
+
+    if (command.includes("aniversario")) {
+      startBirthdayVoiceFlow();
+      return;
+    }
+
+    showAssistantMessage("Eu nao entendi ainda. Tente falar: adicionar lembrete.");
+  }
+
+  function handleVoiceAssistant() {
+    showAssistantMessage("Estou tentando abrir o microfone...", false);
+    setVoiceMessage("Estou ouvindo. Pode falar, por exemplo: adicionar lembrete.");
+    startVoiceRecognition(runVoiceCommand);
   }
 
   if (activeResident) {
