@@ -1,33 +1,41 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 128" role="img" aria-label="J-Tag">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 128" role="img" aria-label="J-tag">
   <defs>
-    <linearGradient id="mark-bg" x1="18" y1="14" x2="112" y2="120" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#2b2b2b"/>
-      <stop offset=".5" stop-color="#111"/>
-      <stop offset="1" stop-color="#050505"/>
+    <linearGradient id="mark-bg" x1="20" y1="12" x2="112" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff3341"/>
+      <stop offset=".42" stop-color="#d80616"/>
+      <stop offset="1" stop-color="#101b2a"/>
     </linearGradient>
-    <linearGradient id="mark-red" x1="28" y1="22" x2="102" y2="108" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ff1f2d"/>
-      <stop offset="1" stop-color="#b80012"/>
+    <radialGradient id="mark-aura" cx="35" cy="24" r="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity=".72"/>
+      <stop offset=".38" stop-color="#ff8f98" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mark-edge" x1="18" y1="6" x2="104" y2="114" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity=".5"/>
+      <stop offset=".45" stop-color="#ffffff" stop-opacity=".08"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".2"/>
     </linearGradient>
-    <filter id="logo-shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#000" flood-opacity=".38"/>
+    <filter id="logo-shadow" x="-20%" y="-25%" width="140%" height="160%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#000000" flood-opacity=".42"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="#e50914" flood-opacity=".18"/>
     </filter>
   </defs>
   <g filter="url(#logo-shadow)">
-    <rect width="128" height="128" rx="30" fill="url(#mark-bg)"/>
-    <path d="M17 92c18-2 22 10 38 8 23-3 24-33 54-31" fill="none" stroke="#e50914" stroke-width="3" stroke-linecap="round" opacity=".34"/>
-    <rect x="27" y="23" width="74" height="82" rx="19" fill="url(#mark-red)"/>
-    <path d="M71 38v39c0 13-8 21-21 21-6 0-12-2-17-5l7-13c3 2 6 3 9 3 5 0 8-3 8-9V38h14Z" fill="#fff"/>
-    <path d="M78 36h19v13H78V36Zm7 13h8v38h-8V49Z" fill="#fff" opacity=".92"/>
-    <circle cx="96" cy="92" r="8" fill="#121212" stroke="#fff" stroke-opacity=".28" stroke-width="2"/>
-    <path d="M93 92h6m-3-3v6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+    <rect x="0" y="0" width="128" height="128" rx="31" fill="#080808"/>
+    <rect x="12" y="10" width="104" height="108" rx="27" fill="url(#mark-bg)"/>
+    <rect x="12" y="10" width="104" height="108" rx="27" fill="url(#mark-aura)"/>
+    <rect x="13" y="11" width="102" height="106" rx="26" fill="none" stroke="url(#mark-edge)" stroke-width="2"/>
+    <path d="M83 30v48c0 18-11 29-29 29-10 0-18-3-25-8l10-17c4 4 9 6 14 6 7 0 11-4 11-12V30h19Z" fill="#fff"/>
+    <path d="M83 30v48c0 18-11 29-29 29-10 0-18-3-25-8l10-17c4 4 9 6 14 6 7 0 11-4 11-12V30h19Z" fill="#ffffff" opacity=".28" transform="translate(3 2)"/>
+    <path d="M30 33c16-10 37-13 63-9" fill="none" stroke="#ffffff" stroke-linecap="round" stroke-width="4" opacity=".2"/>
+    <path d="M29 105c22 10 50 10 74-5" fill="none" stroke="#08101d" stroke-linecap="round" stroke-width="5" opacity=".28"/>
   </g>
   <g fill="#fff">
-    <path d="M167 30v43c0 19-12 31-31 31-8 0-16-2-23-7l9-16c4 3 8 5 13 5 8 0 12-5 12-14V30h20Z"/>
-    <path d="M185 59h42v16h-42V59Z"/>
-    <path d="M259 47h-25V30h70v17h-25v56h-20V47Z"/>
-    <path d="M335 47c18 0 29 10 29 28v28h-17v-6c-4 5-10 8-19 8-13 0-22-8-22-19 0-12 9-19 26-19h13c-1-6-5-9-14-9-6 0-12 2-17 6l-7-14c8-5 18-8 28-8Zm-2 46c6 0 11-3 13-8v-5h-10c-8 0-11 3-11 7s3 6 8 6Z"/>
-    <path d="M419 44v49c0 22-13 33-36 33-12 0-24-3-31-9l7-15c5 5 14 7 22 7 12 0 18-5 18-16v-2c-4 5-11 7-18 7-15 0-28-11-28-28s13-28 28-28c8 0 15 3 19 9v-7h19Zm-19 26c0-8-6-13-14-13s-14 5-14 13 6 13 14 13 14-5 14-13Z"/>
+    <path d="M172 29v45c0 20-13 32-33 32-9 0-17-3-24-8l10-17c4 4 9 6 14 6 8 0 12-5 12-14V29h21Z"/>
+    <path d="M188 59h43v17h-43V59Z"/>
+    <path d="M263 48h-26V29h75v19h-27v56h-22V48Z"/>
+    <path d="M341 46c19 0 31 11 31 30v28h-18v-6c-4 5-11 8-20 8-14 0-23-8-23-20 0-13 9-20 28-20h13c-1-6-6-9-15-9-6 0-13 2-18 6l-7-15c8-5 18-8 29-8Zm-2 46c6 0 11-3 13-8v-5h-11c-8 0-11 3-11 7s3 6 9 6Z"/>
+    <path d="M419 45v51c0 23-14 34-39 34-13 0-25-3-33-10l8-16c6 5 15 8 23 8 13 0 19-6 19-17v-2c-5 5-12 8-20 8-16 0-30-11-30-29s14-29 30-29c9 0 16 3 21 9v-7h21Zm-20 27c0-8-6-14-15-14s-15 6-15 14 6 14 15 14 15-6 15-14Z"/>
   </g>
-  <text x="148" y="118" fill="#8b8b8b" font-family="Trebuchet MS, Verdana, sans-serif" font-size="15" font-weight="700" letter-spacing="0">casa, lembretes e emergencia por NFC</text>
+  <text x="149" y="119" fill="#8f8f8f" font-family="Trebuchet MS, Verdana, sans-serif" font-size="15" font-weight="700" letter-spacing="0">casa, lembretes e emergencia por NFC</text>
 </svg>

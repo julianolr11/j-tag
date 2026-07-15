@@ -12,6 +12,7 @@ import {
   FileText,
   HeartPulse,
   House,
+  Info,
   KeyRound,
   Lightbulb,
   LockKeyhole,
@@ -129,7 +130,9 @@ type SpeechRecognitionInstance = {
   onend: (() => void) | null;
   onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
   onresult: ((event: SpeechRecognitionResultEvent) => void) | null;
+  abort: () => void;
   start: () => void;
+  stop: () => void;
 };
 
 type SpeechRecognitionWindow = Window & {
@@ -210,6 +213,20 @@ const reminderIconOptions: Array<{
 const reminderIconMap = Object.fromEntries(
   reminderIconOptions.map((option) => [option.id, option]),
 ) as Record<ReminderIcon, (typeof reminderIconOptions)[number]>;
+
+const releaseNotes = {
+  version: "v0.4",
+  title: "Novidades do J-tag",
+  date: "15/07/2026",
+  items: [
+    "Convite por link entra direto na família, sem pedir para digitar o código.",
+    "Perfis agora podem escolher avatares minimalistas prontos no lugar do upload de foto.",
+    "Lembretes e aniversários podem ser excluídos pelo detalhe do calendário com confirmação.",
+    "Aniversários ficam compartilhados entre todos os perfis da casa; lembretes continuam individuais.",
+    "Assistente de voz entende cancelar, cancela ao tocar de novo no microfone e também ao tocar fora.",
+    "Calendários têm navegação por mês, modo lista/calendário e detalhes ao tocar nos itens.",
+  ],
+};
 
 function avatarDataUrl(seed: string, colors: [string, string, string], shape: string) {
   const [base, accent, glow] = colors;
@@ -625,6 +642,24 @@ async function insertRemoteBirthday(householdId: string, birthday: Birthday) {
   return !error;
 }
 
+async function deleteRemoteReminder(reminderId: string) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("reminders").delete().eq("id", reminderId);
+  return !error;
+}
+
+async function deleteRemoteBirthday(birthdayId: string) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("birthdays").delete().eq("id", birthdayId);
+  return !error;
+}
+
 async function insertRemoteEmergencyContact(householdId: string, contact: EmergencyContact) {
   if (!supabase) {
     return false;
@@ -874,6 +909,26 @@ function normalizeVoiceCommand(value: string) {
     .toLowerCase();
 }
 
+function isVoiceCancelCommand(value: string) {
+  const command = normalizeVoiceCommand(value)
+    .replace(/[.,!?]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return [
+    "cancela",
+    "cancelar",
+    "cancelar isso",
+    "cancela isso",
+    "para",
+    "parar",
+    "desiste",
+    "desistir",
+    "nao quero",
+    "nao precisa",
+  ].some((cancelCommand) => command === cancelCommand || command.includes(`${cancelCommand} `));
+}
+
 function formatDateInputValue(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -1019,6 +1074,7 @@ export default function HomePage() {
   const [showNewResident, setShowNewResident] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
   const [showHouseholdInvite, setShowHouseholdInvite] = useState(false);
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState("");
   const [profileModal, setProfileModal] = useState<
     "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | null
@@ -1030,6 +1086,7 @@ export default function HomePage() {
   const [isListening, setIsListening] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState("");
   const pendingVoiceHandlerRef = useRef<((transcript: string) => void) | null>(null);
+  const activeRecognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const speechFallbackTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -1083,6 +1140,26 @@ export default function HomePage() {
       saveState(appState);
     }
   }, [appState]);
+
+  useEffect(() => {
+    function handleGlobalPointerDown(event: PointerEvent) {
+      const target = event.target;
+      const clickedVoiceButton =
+        target instanceof Element && Boolean(target.closest(".voice-button"));
+
+      if (clickedVoiceButton || (!activeRecognitionRef.current && !pendingVoiceHandlerRef.current)) {
+        return;
+      }
+
+      cancelVoiceAssistant();
+    }
+
+    document.addEventListener("pointerdown", handleGlobalPointerDown, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handleGlobalPointerDown, true);
+    };
+  }, []);
 
   const activeReminders = useMemo(() => {
     if (!activeResident) {
@@ -1363,6 +1440,32 @@ export default function HomePage() {
     setProfileModal(null);
   }
 
+  async function handleDeleteReminder(reminder: Reminder) {
+    const shouldDelete = window.confirm(`Excluir o lembrete "${reminder.text}"?`);
+    if (!shouldDelete) {
+      return;
+    }
+
+    await deleteRemoteReminder(reminder.id);
+    setAppState((current) => ({
+      ...current,
+      reminders: current.reminders.filter((item) => item.id !== reminder.id),
+    }));
+  }
+
+  async function handleDeleteBirthday(birthday: Birthday) {
+    const shouldDelete = window.confirm(`Excluir o aniversário de ${birthday.name}?`);
+    if (!shouldDelete) {
+      return;
+    }
+
+    await deleteRemoteBirthday(birthday.id);
+    setAppState((current) => ({
+      ...current,
+      birthdays: current.birthdays.filter((item) => item.id !== birthday.id),
+    }));
+  }
+
   async function handleUpdateResident(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeResident) {
@@ -1535,6 +1638,36 @@ export default function HomePage() {
     }
   }
 
+  function cancelVoiceAssistant(message = "Tudo bem, cancelei. Nada foi salvo.") {
+    pendingVoiceHandlerRef.current = null;
+
+    if (speechFallbackTimerRef.current) {
+      window.clearTimeout(speechFallbackTimerRef.current);
+      speechFallbackTimerRef.current = null;
+    }
+
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    const activeRecognition = activeRecognitionRef.current;
+    activeRecognitionRef.current = null;
+    if (activeRecognition) {
+      try {
+        activeRecognition.abort();
+      } catch {
+        try {
+          activeRecognition.stop();
+        } catch {
+          // The browser may have already closed the recognizer.
+        }
+      }
+    }
+
+    setIsListening(false);
+    showAssistantMessage(message);
+  }
+
   function startVoiceRecognition(onTranscript: (transcript: string) => void) {
     const speechWindow = window as SpeechRecognitionWindow;
     const SpeechRecognition =
@@ -1549,9 +1682,22 @@ export default function HomePage() {
     recognition.lang = "pt-BR";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
+    recognition.onstart = () => {
+      activeRecognitionRef.current = recognition;
+      setIsListening(true);
+    };
+    recognition.onend = () => {
+      if (activeRecognitionRef.current === recognition) {
+        activeRecognitionRef.current = null;
+      }
+      setIsListening(false);
+    };
     recognition.onerror = (event) => {
+      if (activeRecognitionRef.current !== recognition) {
+        return;
+      }
+
+      activeRecognitionRef.current = null;
       setIsListening(false);
       showAssistantMessage(
         event.error === "not-allowed" || event.error === "service-not-allowed"
@@ -1560,12 +1706,18 @@ export default function HomePage() {
       );
     };
     recognition.onresult = (event) => {
+      if (activeRecognitionRef.current !== recognition) {
+        return;
+      }
+
       const transcript = event.results[0]?.[0]?.transcript ?? "";
+      activeRecognitionRef.current = null;
       pendingVoiceHandlerRef.current = null;
       onTranscript(transcript);
     };
 
     try {
+      activeRecognitionRef.current = recognition;
       recognition.start();
     } catch {
       setIsListening(false);
@@ -1574,15 +1726,24 @@ export default function HomePage() {
   }
 
   function askAssistant(message: string, onTranscript: (transcript: string) => void) {
-    pendingVoiceHandlerRef.current = onTranscript;
+    const guardedTranscript = (transcript: string) => {
+      if (isVoiceCancelCommand(transcript)) {
+        cancelVoiceAssistant();
+        return;
+      }
+
+      onTranscript(transcript);
+    };
+
+    pendingVoiceHandlerRef.current = guardedTranscript;
     setVoiceMessage(message);
     speakAssistant(message, () => {
-      if (pendingVoiceHandlerRef.current !== onTranscript) {
+      if (pendingVoiceHandlerRef.current !== guardedTranscript) {
         return;
       }
 
       setVoiceMessage("Estou ouvindo... Se o iPhone não abrir o microfone, toque nele e responda.");
-      startVoiceRecognition(onTranscript);
+      startVoiceRecognition(guardedTranscript);
     });
   }
 
@@ -1708,6 +1869,11 @@ export default function HomePage() {
   function runVoiceCommand(transcript: string) {
     const command = normalizeVoiceCommand(transcript);
 
+    if (isVoiceCancelCommand(transcript)) {
+      cancelVoiceAssistant("Tudo bem, não tem nada em andamento para cancelar.");
+      return;
+    }
+
     if (command.includes("emergencia") || command.includes("socorro") || command.includes("ajuda")) {
       setShowEmergency(true);
       showAssistantMessage("Estou abrindo a emergencia.");
@@ -1740,14 +1906,8 @@ export default function HomePage() {
   }
 
   function handleVoiceAssistant() {
-    if (isListening) {
-      return;
-    }
-
-    if (pendingVoiceHandlerRef.current) {
-      const pendingHandler = pendingVoiceHandlerRef.current;
-      setVoiceMessage("Estou ouvindo sua resposta...");
-      startVoiceRecognition(pendingHandler);
+    if (isListening || pendingVoiceHandlerRef.current) {
+      cancelVoiceAssistant();
       return;
     }
 
@@ -1773,7 +1933,9 @@ export default function HomePage() {
           onCreate={handleCreateHousehold}
           onJoin={handleJoinHousehold}
           onPhotoSelect={setNewResidentPhoto}
+          onShowReleaseNotes={() => setShowReleaseNotes(true)}
         />
+        {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
       </main>
     );
   }
@@ -1783,7 +1945,7 @@ export default function HomePage() {
       <main className="screen-shell">
         <section className="inside-view">
           <div className="inside-topbar">
-            <button className="brand-button" type="button" onClick={handleSwitchProfile} aria-label="Voltar para perfis">
+            <button className="brand-button" type="button" onClick={() => setShowReleaseNotes(true)} aria-label="Ver novidades">
               <LogoMark size={24} />
             </button>
             <div className="topbar-actions">
@@ -1930,6 +2092,7 @@ export default function HomePage() {
             kind="reminder"
             onClose={() => setProfileModal(null)}
             onCreate={() => setProfileModal("reminder")}
+            onDelete={(item) => void handleDeleteReminder(item as Reminder)}
             title="Calendário de lembretes"
           />
         ) : null}
@@ -1939,6 +2102,7 @@ export default function HomePage() {
             kind="birthday"
             onClose={() => setProfileModal(null)}
             onCreate={() => setProfileModal("birthday")}
+            onDelete={(item) => void handleDeleteBirthday(item as Birthday)}
             title="Calendário de aniversários"
           />
         ) : null}
@@ -1954,6 +2118,7 @@ export default function HomePage() {
             onShare={shareHouseholdInvite}
           />
         ) : null}
+        {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
       </main>
     );
   }
@@ -1970,7 +2135,7 @@ export default function HomePage() {
 
       <section className="profile-stage">
         <header className="simple-header">
-          <button className="brand-button" type="button" aria-label="Inicio">
+          <button className="brand-button" type="button" onClick={() => setShowReleaseNotes(true)} aria-label="Ver novidades">
             <LogoMark size={24} />
           </button>
           <button className="household-pill" type="button" onClick={() => setShowHouseholdInvite(true)}>
@@ -2057,6 +2222,7 @@ export default function HomePage() {
           onShare={shareHouseholdInvite}
         />
       ) : null}
+      {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
     </main>
   );
 }
@@ -2067,12 +2233,14 @@ function HouseholdSetup({
   onCreate,
   onJoin,
   onPhotoSelect,
+  onShowReleaseNotes,
 }: {
   inviteCode: string;
   photo: string;
   onCreate: (householdName: string, resident: StarterResidentInput) => void;
   onJoin: (code: string, resident: StarterResidentInput) => void;
   onPhotoSelect: (photo: string) => void;
+  onShowReleaseNotes: () => void;
 }) {
   const hasInviteLink = Boolean(inviteCode);
   const [mode, setMode] = useState<"create" | "join">(inviteCode ? "join" : "create");
@@ -2149,7 +2317,7 @@ function HouseholdSetup({
   return (
     <section className="household-setup">
       <header className="simple-header">
-        <button className="brand-button" type="button" aria-label="Inicio">
+        <button className="brand-button" type="button" onClick={onShowReleaseNotes} aria-label="Ver novidades">
           <LogoMark size={24} />
         </button>
       </header>
@@ -2663,6 +2831,39 @@ function AvatarPicker({
   );
 }
 
+function ReleaseNotesModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="modal-backdrop">
+      <section className="dark-modal release-modal" role="dialog" aria-modal="true" aria-labelledby="release-title">
+        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <span className="release-icon">
+          <Info size={30} />
+        </span>
+        <div className="release-heading">
+          <p className="eyebrow">
+            {releaseNotes.version} • {releaseNotes.date}
+          </p>
+          <h2 id="release-title">{releaseNotes.title}</h2>
+        </div>
+        <div className="release-list">
+          {releaseNotes.items.map((item) => (
+            <div className="release-row" key={item}>
+              <span aria-hidden="true" />
+              <p>{item}</p>
+            </div>
+          ))}
+        </div>
+        <button className="primary-action" type="button" onClick={onClose}>
+          <Check size={18} />
+          Entendi
+        </button>
+      </section>
+    </div>
+  );
+}
+
 function NewResidentModal({
   photo,
   onClose,
@@ -2896,12 +3097,14 @@ function CalendarModal({
   kind,
   onClose,
   onCreate,
+  onDelete,
   title,
 }: {
   items: Array<Reminder | Birthday>;
   kind: "reminder" | "birthday";
   onClose: () => void;
   onCreate: () => void;
+  onDelete: (item: Reminder | Birthday) => void;
   title: string;
 }) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>(() => getSavedCalendarView(kind));
@@ -2971,6 +3174,15 @@ function CalendarModal({
     }
 
     moveMonth(distance < 0 ? 1 : -1);
+  }
+
+  function handleDeleteSelectedItem() {
+    if (!selectedCalendarItem) {
+      return;
+    }
+
+    onDelete(selectedCalendarItem);
+    setSelectedCalendarItem(null);
   }
 
   return (
@@ -3130,6 +3342,10 @@ function CalendarModal({
                     : formatDateLabel((selectedCalendarItem as Reminder).date)}
                 </small>
               </div>
+              <button className="calendar-delete-button" type="button" onClick={handleDeleteSelectedItem}>
+                <Trash2 size={17} />
+                Excluir
+              </button>
             </article>
           </div>
         ) : null}
