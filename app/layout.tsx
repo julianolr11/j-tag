@@ -5,6 +5,11 @@ export const metadata: Metadata = {
   title: "J-Tag",
   description: "Painel familiar aberto por NFC.",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    shortcut: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export const viewport: Viewport = {

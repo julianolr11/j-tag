@@ -1,5 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="18" fill="#396851"/>
-  <path d="M28 36h72v56H28z" fill="#fffaf0"/>
-  <path d="M42 50h44v10H42zM42 70h28v10H42z" fill="#396851"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="J-Tag">
+  <defs>
+    <linearGradient id="bg" x1="18" y1="14" x2="112" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2b2b2b"/>
+      <stop offset=".46" stop-color="#111"/>
+      <stop offset="1" stop-color="#050505"/>
+    </linearGradient>
+    <linearGradient id="red" x1="28" y1="22" x2="102" y2="108" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff1f2d"/>
+      <stop offset="1" stop-color="#b80012"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="34" y1="24" x2="94" y2="104" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity=".32"/>
+      <stop offset=".52" stop-color="#fff" stop-opacity=".04"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#000" flood-opacity=".45"/>
+    </filter>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#bg)"/>
+  <path d="M17 92c18-2 22 10 38 8 23-3 24-33 54-31" fill="none" stroke="#e50914" stroke-width="3" stroke-linecap="round" opacity=".34"/>
+  <path d="M19 42c19 2 25-10 42-8 22 3 24 30 51 28" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".14"/>
+  <g filter="url(#shadow)">
+    <rect x="27" y="23" width="74" height="82" rx="19" fill="url(#red)"/>
+    <rect x="27" y="23" width="74" height="82" rx="19" fill="url(#shine)"/>
+    <path d="M71 38v39c0 13-8 21-21 21-6 0-12-2-17-5l7-13c3 2 6 3 9 3 5 0 8-3 8-9V38h14Z" fill="#fff"/>
+    <path d="M78 36h19v13H78V36Zm7 13h8v38h-8V49Z" fill="#fff" opacity=".92"/>
+  </g>
+  <circle cx="96" cy="92" r="8" fill="#121212" stroke="#fff" stroke-opacity=".28" stroke-width="2"/>
+  <path d="M93 92h6m-3-3v6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
 </svg>

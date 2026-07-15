@@ -926,7 +926,7 @@ export default function HomePage() {
         <section className="inside-view">
           <div className="inside-topbar">
             <button className="brand-button" type="button" onClick={handleSwitchProfile} aria-label="Voltar para perfis">
-              <House size={22} />
+              <LogoMark size={24} />
             </button>
             <div className="topbar-actions">
               <button
@@ -1085,7 +1085,7 @@ export default function HomePage() {
       {showSplash ? (
         <section className="splash-screen" aria-label="Carregando J-Tag">
           <div className="splash-logo">
-            <House size={58} />
+            <LogoMark size={76} />
           </div>
         </section>
       ) : null}
@@ -1093,7 +1093,7 @@ export default function HomePage() {
       <section className="profile-stage">
         <header className="simple-header">
           <button className="brand-button" type="button" aria-label="Inicio">
-            <House size={22} />
+            <LogoMark size={24} />
           </button>
         </header>
 
@@ -1234,6 +1234,20 @@ function InfoPanel({
       </div>
       <div className="inside-list">{children}</div>
     </article>
+  );
+}
+
+function LogoMark({ size = 22 }: { size?: number }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      alt=""
+      className="logo-mark"
+      height={size}
+      src="/icon.svg"
+      style={{ height: size, width: size }}
+      width={size}
+    />
   );
 }
 

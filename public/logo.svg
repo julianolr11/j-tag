@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 128" role="img" aria-label="J-Tag">
+  <defs>
+    <linearGradient id="mark-bg" x1="18" y1="14" x2="112" y2="120" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2b2b2b"/>
+      <stop offset=".5" stop-color="#111"/>
+      <stop offset="1" stop-color="#050505"/>
+    </linearGradient>
+    <linearGradient id="mark-red" x1="28" y1="22" x2="102" y2="108" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff1f2d"/>
+      <stop offset="1" stop-color="#b80012"/>
+    </linearGradient>
+    <filter id="logo-shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#000" flood-opacity=".38"/>
+    </filter>
+  </defs>
+  <g filter="url(#logo-shadow)">
+    <rect width="128" height="128" rx="30" fill="url(#mark-bg)"/>
+    <path d="M17 92c18-2 22 10 38 8 23-3 24-33 54-31" fill="none" stroke="#e50914" stroke-width="3" stroke-linecap="round" opacity=".34"/>
+    <rect x="27" y="23" width="74" height="82" rx="19" fill="url(#mark-red)"/>
+    <path d="M71 38v39c0 13-8 21-21 21-6 0-12-2-17-5l7-13c3 2 6 3 9 3 5 0 8-3 8-9V38h14Z" fill="#fff"/>
+    <path d="M78 36h19v13H78V36Zm7 13h8v38h-8V49Z" fill="#fff" opacity=".92"/>
+    <circle cx="96" cy="92" r="8" fill="#121212" stroke="#fff" stroke-opacity=".28" stroke-width="2"/>
+    <path d="M93 92h6m-3-3v6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <g fill="#fff">
+    <path d="M167 30v43c0 19-12 31-31 31-8 0-16-2-23-7l9-16c4 3 8 5 13 5 8 0 12-5 12-14V30h20Z"/>
+    <path d="M185 59h42v16h-42V59Z"/>
+    <path d="M259 47h-25V30h70v17h-25v56h-20V47Z"/>
+    <path d="M335 47c18 0 29 10 29 28v28h-17v-6c-4 5-10 8-19 8-13 0-22-8-22-19 0-12 9-19 26-19h13c-1-6-5-9-14-9-6 0-12 2-17 6l-7-14c8-5 18-8 28-8Zm-2 46c6 0 11-3 13-8v-5h-10c-8 0-11 3-11 7s3 6 8 6Z"/>
+    <path d="M419 44v49c0 22-13 33-36 33-12 0-24-3-31-9l7-15c5 5 14 7 22 7 12 0 18-5 18-16v-2c-4 5-11 7-18 7-15 0-28-11-28-28s13-28 28-28c8 0 15 3 19 9v-7h19Zm-19 26c0-8-6-13-14-13s-14 5-14 13 6 13 14 13 14-5 14-13Z"/>
+  </g>
+  <text x="148" y="118" fill="#8b8b8b" font-family="Trebuchet MS, Verdana, sans-serif" font-size="15" font-weight="700" letter-spacing="0">casa, lembretes e emergencia por NFC</text>
+</svg>
