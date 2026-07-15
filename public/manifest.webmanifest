@@ -1,0 +1,16 @@
+{
+  "name": "J-Tag",
+  "short_name": "J-Tag",
+  "description": "Painel familiar aberto por NFC.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f1e4",
+  "theme_color": "#396851",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
