@@ -1,6 +1,6 @@
 "use client";
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type User } from "@supabase/supabase-js";
 import {
   Cake,
   Bell,
@@ -143,6 +143,7 @@ type SpeechRecognitionWindow = Window & {
 const STORAGE_KEY = "jtag-mvp-state-v2";
 const LAST_RESIDENT_KEY = "jtag-last-resident-id-v2";
 const CALENDAR_VIEW_KEY = "jtag-calendar-view-mode";
+const RECENT_HOUSEHOLDS_KEY = "jtag-recent-households-v1";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
@@ -154,6 +155,19 @@ type AvatarOption = {
   id: string;
   label: string;
   src: string;
+};
+
+type RecentHousehold = {
+  id: string;
+  name: string;
+  code: string;
+  lastAccessedAt: string;
+};
+
+type HouseholdMemberRow = {
+  household_id: string;
+  user_id: string;
+  role: "owner" | "member";
 };
 
 type HouseholdRow = {
@@ -421,6 +435,42 @@ function saveState(state: AppState) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
+function loadRecentHouseholds() {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const stored = window.localStorage.getItem(RECENT_HOUSEHOLDS_KEY);
+  if (!stored) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(stored) as RecentHousehold[];
+    return parsed
+      .filter((item) => item.id && item.name && item.code)
+      .sort((left, right) => right.lastAccessedAt.localeCompare(left.lastAccessedAt))
+      .slice(0, 4);
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentHouseholds(households: RecentHousehold[]) {
+  window.localStorage.setItem(RECENT_HOUSEHOLDS_KEY, JSON.stringify(households.slice(0, 4)));
+}
+
+function rememberHousehold(household: Household) {
+  const nextHousehold: RecentHousehold = {
+    id: household.id,
+    name: household.name,
+    code: household.code,
+    lastAccessedAt: new Date().toISOString(),
+  };
+  const existingHouseholds = loadRecentHouseholds().filter((item) => item.id !== household.id);
+  saveRecentHouseholds([nextHousehold, ...existingHouseholds]);
+}
+
 function mapHousehold(row: HouseholdRow): Household {
   return {
     id: row.id,
@@ -523,6 +573,55 @@ async function loadRemoteStateById(householdId: string) {
   }
 
   return loadRemoteStateByHousehold(data as HouseholdRow);
+}
+
+async function loadAccountHouseholds(userId: string): Promise<RecentHousehold[]> {
+  if (!supabase || !userId) {
+    return [];
+  }
+
+  const { data: memberships, error: membershipError } = await supabase
+    .from("household_members")
+    .select("household_id,user_id,role")
+    .eq("user_id", userId);
+
+  if (membershipError || !memberships?.length) {
+    return [];
+  }
+
+  const householdIds = ((memberships ?? []) as HouseholdMemberRow[]).map((membership) => membership.household_id);
+  const { data: households, error: householdError } = await supabase
+    .from("households")
+    .select("*")
+    .in("id", householdIds);
+
+  if (householdError || !households?.length) {
+    return [];
+  }
+
+  return ((households ?? []) as HouseholdRow[]).map((household) => ({
+    id: household.id,
+    name: household.name,
+    code: household.code,
+    lastAccessedAt: new Date().toISOString(),
+  }));
+}
+
+async function upsertRemoteHouseholdMember(householdId: string, userId: string, role: "owner" | "member") {
+  if (!supabase || !householdId || !userId) {
+    return false;
+  }
+
+  const { error } = await supabase.from("household_members").upsert(
+    {
+      household_id: householdId,
+      user_id: userId,
+      role,
+    },
+    { onConflict: "household_id,user_id" },
+  );
+
+  return !error;
 }
 
 async function createRemoteHousehold(household: Household, resident: Resident) {
@@ -1076,6 +1175,10 @@ export default function HomePage() {
   const [showHouseholdInvite, setShowHouseholdInvite] = useState(false);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState("");
+  const [recentHouseholds, setRecentHouseholds] = useState<RecentHousehold[]>([]);
+  const [accountHouseholds, setAccountHouseholds] = useState<RecentHousehold[]>([]);
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [profileModal, setProfileModal] = useState<
     "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | null
   >(null);
@@ -1096,6 +1199,7 @@ export default function HomePage() {
     const lastResident = storedState.residents.find((resident) => resident.id === lastResidentId);
     const inviteCode = normalizeHouseholdCode(new URLSearchParams(window.location.search).get("lar") ?? "");
 
+    setRecentHouseholds(loadRecentHouseholds());
     setAppState(storedState);
     if (storedState.household && lastResident) {
       setActiveResident(lastResident);
@@ -1105,18 +1209,38 @@ export default function HomePage() {
     }
 
     async function hydrateRemoteState() {
+      const sessionResult = supabase ? await supabase.auth.getSession() : null;
+      const user = sessionResult?.data.session?.user ?? null;
+      const userHouseholds = user ? await loadAccountHouseholds(user.id) : [];
+      const defaultAccountHousehold = !storedState.household && !inviteCode && userHouseholds.length === 1
+        ? userHouseholds[0]
+        : null;
       const remoteState = inviteCode
         ? await loadRemoteStateByCode(inviteCode)
         : storedState.household
           ? await loadRemoteStateById(storedState.household.id)
+          : defaultAccountHousehold
+            ? await loadRemoteStateById(defaultAccountHousehold.id)
           : null;
 
-      if (!isMounted || !remoteState) {
+      if (!isMounted) {
+        return;
+      }
+
+      setAuthUser(user);
+      setAccountHouseholds(userHouseholds);
+      setAuthLoading(false);
+
+      if (!remoteState) {
         return;
       }
 
       const remoteLastResident = remoteState.residents.find((resident) => resident.id === lastResidentId);
       setAppState(remoteState);
+      if (remoteState.household) {
+        rememberHousehold(remoteState.household);
+        setRecentHouseholds(loadRecentHouseholds());
+      }
       if (remoteLastResident) {
         setActiveResident(remoteLastResident);
       }
@@ -1126,12 +1250,28 @@ export default function HomePage() {
     }
 
     hydrateRemoteState();
+    const { data: authSubscription } = supabase?.auth.onAuthStateChange((_event, session) => {
+      const nextUser = session?.user ?? null;
+      setAuthUser(nextUser);
+      setAuthLoading(false);
+      if (!nextUser) {
+        setAccountHouseholds([]);
+        return;
+      }
+
+      void loadAccountHouseholds(nextUser.id).then((households) => {
+        if (isMounted) {
+          setAccountHouseholds(households);
+        }
+      });
+    }) ?? { data: { subscription: null } };
 
     const timer = window.setTimeout(() => setShowSplash(false), 1350);
 
     return () => {
       isMounted = false;
       window.clearTimeout(timer);
+      authSubscription.subscription?.unsubscribe();
     };
   }, []);
 
@@ -1170,6 +1310,57 @@ export default function HomePage() {
   }, [activeResident, appState.reminders]);
   const reminderPreview = useMemo(() => getReminderPreview(activeReminders), [activeReminders]);
   const birthdayPreview = useMemo(() => getBirthdayPreview(appState.birthdays), [appState.birthdays]);
+  const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
+
+  async function refreshAccountHouseholds(userId = authUser?.id) {
+    if (!userId) {
+      setAccountHouseholds([]);
+      return;
+    }
+
+    const households = await loadAccountHouseholds(userId);
+    setAccountHouseholds(households);
+  }
+
+  async function handleAuthSubmit(mode: "sign-in" | "sign-up", email: string, password: string) {
+    if (!supabase) {
+      window.alert("Supabase não está configurado neste ambiente.");
+      return;
+    }
+
+    const credentials = {
+      email: email.trim(),
+      password,
+    };
+    const { data, error } =
+      mode === "sign-up"
+        ? await supabase.auth.signUp(credentials)
+        : await supabase.auth.signInWithPassword(credentials);
+
+    if (error) {
+      window.alert(error.message);
+      return;
+    }
+
+    if (data.user) {
+      setAuthUser(data.user);
+      await refreshAccountHouseholds(data.user.id);
+    }
+
+    if (mode === "sign-up" && !data.session) {
+      window.alert("Conta criada. Se o Supabase pedir confirmação, confirme o e-mail antes de entrar.");
+    }
+  }
+
+  async function handleSignOut() {
+    await supabase?.auth.signOut();
+    clearLastResident();
+    setAuthUser(null);
+    setAccountHouseholds([]);
+    setActiveResident(null);
+    setSelectedResident(null);
+    setAppState(defaultState);
+  }
 
   function createResidentFromInput(input: StarterResidentInput, roleFallback: string) {
     const name = input.name.trim();
@@ -1207,6 +1398,12 @@ export default function HomePage() {
     };
 
     await createRemoteHousehold(household, resident);
+    if (authUser) {
+      await upsertRemoteHouseholdMember(household.id, authUser.id, "owner");
+      await refreshAccountHouseholds(authUser.id);
+    }
+    rememberHousehold(household);
+    setRecentHouseholds(loadRecentHouseholds());
     saveLastResident(resident.id);
     runScreenTransition("enter", () => {
       setAppState({
@@ -1239,6 +1436,12 @@ export default function HomePage() {
       };
 
     await insertRemoteResident(household.id, resident);
+    if (authUser) {
+      await upsertRemoteHouseholdMember(household.id, authUser.id, "member");
+      await refreshAccountHouseholds(authUser.id);
+    }
+    rememberHousehold(household);
+    setRecentHouseholds(loadRecentHouseholds());
 
     saveLastResident(resident.id);
     runScreenTransition("enter", () => {
@@ -1250,6 +1453,25 @@ export default function HomePage() {
       setPendingInviteCode("");
       setActiveResident(resident);
       setNewResidentPhoto("");
+    });
+  }
+
+  async function handleContinueHousehold(recentHousehold: RecentHousehold) {
+    const remoteState = await loadRemoteStateById(recentHousehold.id);
+
+    if (!remoteState?.household) {
+      const nextRecentHouseholds = loadRecentHouseholds().filter((item) => item.id !== recentHousehold.id);
+      saveRecentHouseholds(nextRecentHouseholds);
+      setRecentHouseholds(nextRecentHouseholds);
+      window.alert("Não consegui carregar esse lar. Tente entrar pelo código novamente.");
+      return;
+    }
+
+    rememberHousehold(remoteState.household);
+    setRecentHouseholds(loadRecentHouseholds());
+    runScreenTransition("enter", () => {
+      setAppState(remoteState);
+      setPendingInviteCode("");
     });
   }
 
@@ -1916,6 +2138,39 @@ export default function HomePage() {
     startVoiceRecognition(runVoiceCommand);
   }
 
+  if (authLoading) {
+    return (
+      <main className="screen-shell">
+        <section className="splash-screen" aria-label="Carregando J-Tag">
+          <div className="splash-logo">
+            <LogoMark size={76} />
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <main className="screen-shell">
+        {showSplash ? (
+          <section className="splash-screen" aria-label="Carregando J-Tag">
+            <div className="splash-logo">
+              <LogoMark size={76} />
+            </div>
+          </section>
+        ) : null}
+
+        <AuthGate
+          hasInvite={Boolean(pendingInviteCode)}
+          onSubmit={(mode, email, password) => void handleAuthSubmit(mode, email, password)}
+          onShowReleaseNotes={() => setShowReleaseNotes(true)}
+        />
+        {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
+      </main>
+    );
+  }
+
   if (!appState.household) {
     return (
       <main className="screen-shell">
@@ -1930,7 +2185,9 @@ export default function HomePage() {
         <HouseholdSetup
           inviteCode={pendingInviteCode}
           photo={newResidentPhoto}
+          recentHouseholds={quickAccessHouseholds}
           onCreate={handleCreateHousehold}
+          onContinue={handleContinueHousehold}
           onJoin={handleJoinHousehold}
           onPhotoSelect={setNewResidentPhoto}
           onShowReleaseNotes={() => setShowReleaseNotes(true)}
@@ -1975,6 +2232,9 @@ export default function HomePage() {
                 aria-label="Editar perfil"
               >
                 <Pencil size={20} />
+              </button>
+              <button className="icon-glass-button" type="button" onClick={() => void handleSignOut()} aria-label="Sair da conta">
+                <X size={20} />
               </button>
             </div>
           </div>
@@ -2143,6 +2403,9 @@ export default function HomePage() {
             <span>{appState.household.name}</span>
             <strong>{appState.household.code}</strong>
           </button>
+          <button className="secondary-mini-button" type="button" onClick={() => void handleSignOut()}>
+            Sair
+          </button>
         </header>
 
         <div className="profile-copy">
@@ -2227,17 +2490,101 @@ export default function HomePage() {
   );
 }
 
+function AuthGate({
+  hasInvite,
+  onShowReleaseNotes,
+  onSubmit,
+}: {
+  hasInvite: boolean;
+  onShowReleaseNotes: () => void;
+  onSubmit: (mode: "sign-in" | "sign-up", email: string, password: string) => void;
+}) {
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const isSignUp = mode === "sign-up";
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") ?? "");
+    const password = String(form.get("password") ?? "");
+
+    if (!email || password.length < 6) {
+      return;
+    }
+
+    onSubmit(mode, email, password);
+  }
+
+  return (
+    <section className="household-setup auth-setup">
+      <header className="simple-header">
+        <button className="brand-button" type="button" onClick={onShowReleaseNotes} aria-label="Ver novidades">
+          <LogoMark size={24} />
+        </button>
+      </header>
+
+      <div className="household-hero">
+        <span className="household-icon">
+          <Users size={32} />
+        </span>
+        <p className="eyebrow">{hasInvite ? "Convite recebido" : "Conta J-tag"}</p>
+        <h1>{isSignUp ? "Criar sua conta" : "Entrar na sua conta"}</h1>
+        <p>
+          {hasInvite
+            ? "Entre com sua própria conta para acessar a família do convite."
+            : "Uma conta pode participar de uma ou mais famílias e ver os perfis delas."}
+        </p>
+      </div>
+
+      <form className="household-card auth-card" onSubmit={handleSubmit}>
+        <div className="view-toggle" role="group" aria-label="Tipo de acesso">
+          <button className={!isSignUp ? "active" : ""} type="button" onClick={() => setMode("sign-in")}>
+            Entrar
+          </button>
+          <button className={isSignUp ? "active" : ""} type="button" onClick={() => setMode("sign-up")}>
+            Criar conta
+          </button>
+        </div>
+        <div className="field">
+          <label htmlFor="auth-email">E-mail</label>
+          <input id="auth-email" name="email" autoComplete="email" inputMode="email" placeholder="voce@email.com" required />
+        </div>
+        <div className="field">
+          <label htmlFor="auth-password">Senha</label>
+          <input
+            id="auth-password"
+            name="password"
+            autoComplete={isSignUp ? "new-password" : "current-password"}
+            minLength={6}
+            placeholder="No mínimo 6 caracteres"
+            type="password"
+            required
+          />
+        </div>
+        <button className="primary-action" type="submit">
+          <Check size={18} />
+          {isSignUp ? "Criar conta" : "Entrar"}
+        </button>
+      </form>
+    </section>
+  );
+}
+
 function HouseholdSetup({
   inviteCode,
   photo,
+  recentHouseholds,
   onCreate,
+  onContinue,
   onJoin,
   onPhotoSelect,
   onShowReleaseNotes,
 }: {
   inviteCode: string;
   photo: string;
+  recentHouseholds: RecentHousehold[];
   onCreate: (householdName: string, resident: StarterResidentInput) => void;
+  onContinue: (household: RecentHousehold) => void;
   onJoin: (code: string, resident: StarterResidentInput) => void;
   onPhotoSelect: (photo: string) => void;
   onShowReleaseNotes: () => void;
@@ -2340,6 +2687,25 @@ function HouseholdSetup({
 
         {step === 1 ? (
           <div className="setup-choice-grid">
+            {recentHouseholds.length ? (
+              <div className="recent-household-list">
+                <p className="eyebrow">Acesso rápido</p>
+                {recentHouseholds.map((household) => (
+                  <button
+                    className="recent-household-card"
+                    key={household.id}
+                    type="button"
+                    onClick={() => onContinue(household)}
+                  >
+                    <span>
+                      <House size={20} />
+                    </span>
+                    <strong>{household.name}</strong>
+                    <small>Continuar nesta família</small>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <button
               className={`setup-choice ${isCreateMode ? "selected" : ""}`}
               type="button"
