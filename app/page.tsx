@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Cake,
   Bell,
-  Camera,
   CalendarCheck,
   CalendarDays,
   Check,
@@ -29,7 +28,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 type Resident = {
@@ -148,6 +147,11 @@ const supabase =
 
 type CalendarViewMode = "calendar" | "list";
 type ReminderIcon = "general" | "shopping" | "lightbulb" | "medicine" | "home" | "document";
+type AvatarOption = {
+  id: string;
+  label: string;
+  src: string;
+};
 
 type HouseholdRow = {
   id: string;
@@ -206,6 +210,68 @@ const reminderIconOptions: Array<{
 const reminderIconMap = Object.fromEntries(
   reminderIconOptions.map((option) => [option.id, option]),
 ) as Record<ReminderIcon, (typeof reminderIconOptions)[number]>;
+
+function avatarDataUrl(seed: string, colors: [string, string, string], shape: string) {
+  const [base, accent, glow] = colors;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160">
+      <defs>
+        <linearGradient id="bg-${seed}" x1="22" y1="10" x2="142" y2="154" gradientUnits="userSpaceOnUse">
+          <stop stop-color="${base}"/>
+          <stop offset=".55" stop-color="#171717"/>
+          <stop offset="1" stop-color="${accent}"/>
+        </linearGradient>
+        <radialGradient id="glow-${seed}" cx="54" cy="38" r="92" gradientUnits="userSpaceOnUse">
+          <stop stop-color="${glow}" stop-opacity=".9"/>
+          <stop offset=".58" stop-color="${glow}" stop-opacity=".12"/>
+          <stop offset="1" stop-color="${glow}" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="160" height="160" rx="26" fill="url(#bg-${seed})"/>
+      <rect width="160" height="160" rx="26" fill="url(#glow-${seed})"/>
+      <path d="${shape}" fill="${glow}" fill-opacity=".82"/>
+      <path d="M28 126c20-18 84-18 104 0" stroke="white" stroke-opacity=".22" stroke-width="12" stroke-linecap="round"/>
+      <circle cx="80" cy="66" r="28" fill="white" fill-opacity=".18"/>
+      <circle cx="69" cy="61" r="6" fill="white" fill-opacity=".72"/>
+      <circle cx="91" cy="61" r="6" fill="white" fill-opacity=".72"/>
+      <path d="M68 82c8 7 16 7 24 0" stroke="white" stroke-width="5" stroke-linecap="round" fill="none" opacity=".74"/>
+    </svg>`;
+
+  return `data:image/svg+xml,${encodeURIComponent(svg.replace(/\s+/g, " ").trim())}`;
+}
+
+const avatarOptions: AvatarOption[] = [
+  {
+    id: "ruby",
+    label: "Vermelho",
+    src: avatarDataUrl("ruby", ["#e50914", "#6b0710", "#ff7a84"], "M32 36c26-20 70-19 96 2-20 2-24 28-48 28S54 38 32 36Z"),
+  },
+  {
+    id: "ocean",
+    label: "Azul",
+    src: avatarDataUrl("ocean", ["#1f6feb", "#0f3d68", "#8fc1ff"], "M34 74c16-34 77-44 96-8-31-10-50 28-82 8Z"),
+  },
+  {
+    id: "forest",
+    label: "Verde",
+    src: avatarDataUrl("forest", ["#1f8f58", "#123b2a", "#87f0b1"], "M80 22c28 18 42 42 36 72-18-20-54-20-72 0-6-30 8-54 36-72Z"),
+  },
+  {
+    id: "sunset",
+    label: "Dourado",
+    src: avatarDataUrl("sunset", ["#f2994a", "#6d3716", "#ffd38d"], "M30 70c18-30 32-42 50-42s32 12 50 42c-20 10-80 10-100 0Z"),
+  },
+  {
+    id: "mono",
+    label: "Grafite",
+    src: avatarDataUrl("mono", ["#444", "#111", "#d7d7d7"], "M39 40h82v28c-24-10-58-10-82 0V40Z"),
+  },
+  {
+    id: "rose",
+    label: "Rosa",
+    src: avatarDataUrl("rose", ["#db2777", "#5b1234", "#ffb3d0"], "M80 25c19 0 35 16 35 35 0 26-35 47-35 47S45 86 45 60c0-19 16-35 35-35Z"),
+  },
+];
 
 const defaultState: AppState = {
   household: null,
@@ -602,15 +668,6 @@ function getSavedCalendarView(kind: "reminder" | "birthday") {
 
 function saveCalendarView(kind: "reminder" | "birthday", mode: CalendarViewMode) {
   window.localStorage.setItem(`${CALENDAR_VIEW_KEY}-${kind}`, mode);
-}
-
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 function runScreenTransition(kind: "enter" | "back" | "soft", update: () => void) {
@@ -1214,26 +1271,6 @@ export default function HomePage() {
     validateResidentPin(nextPin, selectedResident);
   }
 
-  async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    const photo = await fileToDataUrl(file);
-    setNewResidentPhoto(photo);
-  }
-
-  async function handleEditPhotoChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    const photo = await fileToDataUrl(file);
-    setEditResidentPhoto(photo);
-  }
-
   async function handleAddResident(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!appState.household) {
@@ -1735,7 +1772,7 @@ export default function HomePage() {
           photo={newResidentPhoto}
           onCreate={handleCreateHousehold}
           onJoin={handleJoinHousehold}
-          onPhotoChange={handlePhotoChange}
+          onPhotoSelect={setNewResidentPhoto}
         />
       </main>
     );
@@ -1883,7 +1920,7 @@ export default function HomePage() {
               setProfileModal(null);
             }}
             onDelete={handleDeleteResident}
-            onPhotoChange={handleEditPhotoChange}
+            onPhotoSelect={setEditResidentPhoto}
             onSubmit={handleUpdateResident}
           />
         ) : null}
@@ -1994,7 +2031,7 @@ export default function HomePage() {
             setNewResidentPhoto("");
             setShowNewResident(false);
           }}
-          onPhotoChange={handlePhotoChange}
+          onPhotoSelect={setNewResidentPhoto}
           onSubmit={handleAddResident}
         />
       ) : null}
@@ -2029,16 +2066,17 @@ function HouseholdSetup({
   photo,
   onCreate,
   onJoin,
-  onPhotoChange,
+  onPhotoSelect,
 }: {
   inviteCode: string;
   photo: string;
   onCreate: (householdName: string, resident: StarterResidentInput) => void;
   onJoin: (code: string, resident: StarterResidentInput) => void;
-  onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onPhotoSelect: (photo: string) => void;
 }) {
+  const hasInviteLink = Boolean(inviteCode);
   const [mode, setMode] = useState<"create" | "join">(inviteCode ? "join" : "create");
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(hasInviteLink ? 3 : 1);
   const [householdName, setHouseholdName] = useState("");
   const [code, setCode] = useState(inviteCode);
   const [resident, setResident] = useState<StarterResidentInput>({
@@ -2047,9 +2085,13 @@ function HouseholdSetup({
     pin: "",
   });
   const isCreateMode = mode === "create";
-  const totalSteps = isCreateMode ? 4 : 3;
+  const finalStep = isCreateMode ? 4 : 3;
+  const visibleStep = hasInviteLink ? Math.max(1, step - 2) : step;
+  const totalSteps = hasInviteLink ? 2 : finalStep;
   const stepTitle =
-    step === 1
+    hasInviteLink && step === 3
+      ? "Ingressar na família"
+      : step === 1
       ? "Como você quer começar?"
       : step === 2
         ? isCreateMode
@@ -2059,7 +2101,9 @@ function HouseholdSetup({
           ? "Crie seu perfil"
           : "Convide quem mora com você";
   const stepDescription =
-    step === 1
+    hasInviteLink && step === 3
+      ? "O convite já trouxe o código do lar. Crie seu perfil para entrar."
+      : step === 1
       ? "Escolha uma opção para preparar o acesso por NFC."
       : step === 2
         ? isCreateMode
@@ -2079,11 +2123,11 @@ function HouseholdSetup({
       return;
     }
 
-    setStep((current) => Math.min(current + 1, totalSteps));
+    setStep((current) => Math.min(current + 1, finalStep));
   }
 
   function goBack() {
-    setStep((current) => Math.max(current - 1, 1));
+    setStep((current) => Math.max(current - 1, hasInviteLink ? 3 : 1));
   }
 
   function handleFinish() {
@@ -2114,15 +2158,15 @@ function HouseholdSetup({
         <span className="household-icon">
           {step === 1 ? <House size={32} /> : step === 2 ? <KeyRound size={32} /> : step === 3 ? <UserPlus size={32} /> : <Users size={32} />}
         </span>
-        <p className="eyebrow">Passo {step} de {totalSteps}</p>
+        <p className="eyebrow">Passo {visibleStep} de {totalSteps}</p>
         <h1>{stepTitle}</h1>
         <p>{stepDescription}</p>
       </div>
 
       <div className="household-card" key={`${mode}-${step}`}>
-        <div className="setup-progress" aria-label={`Passo ${step} de ${totalSteps}`}>
+        <div className="setup-progress" aria-label={`Passo ${visibleStep} de ${totalSteps}`}>
           {Array.from({ length: totalSteps }, (_, index) => (
-            <span className={index + 1 <= step ? "active" : ""} key={index} />
+            <span className={index + 1 <= visibleStep ? "active" : ""} key={index} />
           ))}
         </div>
 
@@ -2191,7 +2235,7 @@ function HouseholdSetup({
             resident={resident}
             rolePlaceholder={isCreateMode ? "Ex: Admin da casa" : "Ex: Morador"}
             onChange={updateResident}
-            onPhotoChange={onPhotoChange}
+            onPhotoSelect={onPhotoSelect}
           />
         ) : null}
 
@@ -2208,13 +2252,13 @@ function HouseholdSetup({
         ) : null}
 
         <div className="setup-nav">
-          {step > 1 ? (
+          {step > (hasInviteLink ? 3 : 1) ? (
             <button className="secondary-action" type="button" onClick={goBack}>
               <ChevronLeft size={18} />
               Voltar
             </button>
           ) : null}
-          {step === 1 ? null : step < totalSteps ? (
+          {step === 1 ? null : step < finalStep ? (
             <button className="primary-action" type="button" onClick={goNext} disabled={!canGoNext}>
               Próximo
               <ChevronRight size={18} />
@@ -2222,7 +2266,7 @@ function HouseholdSetup({
           ) : (
             <button className="primary-action" type="button" onClick={handleFinish} disabled={!canGoNext}>
               <Check size={18} />
-              {isCreateMode ? "Finalizar e gerar convite" : "Entrar no lar"}
+              {isCreateMode ? "Finalizar e gerar convite" : hasInviteLink ? "Ingressar na família" : "Entrar no lar"}
             </button>
           )}
         </div>
@@ -2236,27 +2280,17 @@ function ResidentStarterFields({
   resident,
   rolePlaceholder,
   onChange,
-  onPhotoChange,
+  onPhotoSelect,
 }: {
   photo: string;
   resident: StarterResidentInput;
   rolePlaceholder: string;
   onChange: (field: keyof StarterResidentInput, value: string) => void;
-  onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onPhotoSelect: (photo: string) => void;
 }) {
   return (
     <div className="household-form">
-      <label className="photo-picker compact-photo-picker">
-        <span className="avatar-frame avatar-large avatar-empty">
-          {photo ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img alt="" src={photo} />
-          ) : (
-            <Camera size={30} />
-          )}
-        </span>
-        <input accept="image/*" name="photo" type="file" onChange={onPhotoChange} />
-      </label>
+      <AvatarPicker photo={photo} compact onSelect={onPhotoSelect} />
       <div className="field">
         <label htmlFor="starter-name">Seu nome</label>
         <input
@@ -2573,15 +2607,71 @@ function PinModal({
   );
 }
 
+function AvatarPicker({
+  compact = false,
+  fallbackColor,
+  photo,
+  onSelect,
+}: {
+  compact?: boolean;
+  fallbackColor?: string;
+  photo: string;
+  onSelect: (photo: string) => void;
+}) {
+  return (
+    <div className={`avatar-picker ${compact ? "avatar-picker-compact" : ""}`}>
+      <div
+        className="avatar-frame avatar-large avatar-empty avatar-picker-preview"
+        style={{ backgroundColor: photo ? undefined : fallbackColor }}
+      >
+        {photo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img alt="" src={photo} />
+        ) : (
+          <Users size={compact ? 28 : 34} />
+        )}
+      </div>
+      <div className="avatar-picker-copy">
+        <strong>Escolha um avatar</strong>
+        <span>Imagens prontas para o perfil.</span>
+      </div>
+      <div className="avatar-option-grid" role="list" aria-label="Avatares prontos">
+        {avatarOptions.map((avatar) => {
+          const isSelected = photo === avatar.src;
+
+          return (
+            <button
+              aria-label={`Usar avatar ${avatar.label}`}
+              aria-pressed={isSelected}
+              className={`avatar-option ${isSelected ? "selected" : ""}`}
+              key={avatar.id}
+              type="button"
+              onClick={() => onSelect(avatar.src)}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img alt="" src={avatar.src} />
+            </button>
+          );
+        })}
+      </div>
+      {photo ? (
+        <button className="avatar-clear-button" type="button" onClick={() => onSelect("")}>
+          Usar inicial do nome
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function NewResidentModal({
   photo,
   onClose,
-  onPhotoChange,
+  onPhotoSelect,
   onSubmit,
 }: {
   photo: string;
   onClose: () => void;
-  onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onPhotoSelect: (photo: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -2590,17 +2680,7 @@ function NewResidentModal({
         <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
           <X size={20} />
         </button>
-        <label className="photo-picker">
-          <span className="avatar-frame avatar-large avatar-empty">
-            {photo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img alt="" src={photo} />
-            ) : (
-              <Camera size={34} />
-            )}
-          </span>
-          <input accept="image/*" name="photo" type="file" onChange={onPhotoChange} />
-        </label>
+        <AvatarPicker photo={photo} onSelect={onPhotoSelect} />
         <div>
           <p className="eyebrow">Novo perfil</p>
           <h2>Adicionar morador</h2>
@@ -2734,14 +2814,14 @@ function EditResidentModal({
   resident,
   onClose,
   onDelete,
-  onPhotoChange,
+  onPhotoSelect,
   onSubmit,
 }: {
   photo: string;
   resident: Resident;
   onClose: () => void;
   onDelete: () => void;
-  onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onPhotoSelect: (photo: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
@@ -2750,20 +2830,7 @@ function EditResidentModal({
         <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
           <X size={20} />
         </button>
-        <label className="photo-picker">
-          <span
-            className="avatar-frame avatar-large avatar-empty"
-            style={{ backgroundColor: photo ? undefined : resident.color }}
-          >
-            {photo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img alt="" src={photo} />
-            ) : (
-              <Camera size={34} />
-            )}
-          </span>
-          <input accept="image/*" name="photo" type="file" onChange={onPhotoChange} />
-        </label>
+        <AvatarPicker fallbackColor={resident.color} photo={photo} onSelect={onPhotoSelect} />
         <div>
           <p className="eyebrow">Editar perfil</p>
           <h2>{resident.name}</h2>
