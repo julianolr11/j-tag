@@ -26,8 +26,13 @@ body {
 
 body {
   background:
+    radial-gradient(circle at 8% 24%, rgba(229, 9, 20, 0.28), transparent 34%),
+    radial-gradient(circle at 88% 12%, rgba(47, 128, 237, 0.18), transparent 32%),
     linear-gradient(115deg, rgba(255, 255, 255, 0.08), transparent 26%),
     linear-gradient(180deg, #161616 0%, #070707 48%, #000 100%);
+  background-attachment: fixed;
+  background-color: #050505;
+  background-size: cover;
   color: var(--text);
   font-family: "Arial Black", Impact, "Trebuchet MS", sans-serif;
   margin: 0;
@@ -60,7 +65,7 @@ a {
 
 .screen-shell {
   min-height: 100vh;
-  overflow: hidden;
+  overflow-x: hidden;
   position: relative;
   view-transition-name: app-screen;
 }
@@ -179,12 +184,12 @@ html[data-transition="back"]::view-transition-new(app-screen) {
 
 .household-setup::before {
   background:
-    radial-gradient(circle at 18% 22%, rgba(229, 9, 20, 0.22), transparent 30%),
-    radial-gradient(circle at 78% 18%, rgba(47, 128, 237, 0.16), transparent 28%),
+    radial-gradient(circle at 12% 28%, rgba(229, 9, 20, 0.16), transparent 34%),
+    radial-gradient(circle at 88% 18%, rgba(47, 128, 237, 0.16), transparent 32%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 36%);
   content: "";
   filter: blur(2px);
-  inset: 0;
+  inset: 0 calc(50% - 50vw);
   pointer-events: none;
   position: absolute;
 }
@@ -324,6 +329,10 @@ html[data-transition="back"]::view-transition-new(app-screen) {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.setup-nav:empty {
+  display: none;
 }
 
 .setup-nav .primary-action:only-child {
@@ -2001,17 +2010,54 @@ html[data-transition="back"]::view-transition-new(app-screen) {
 }
 
 @media (max-width: 720px) {
+  body {
+    background:
+      radial-gradient(circle at 0% 24%, rgba(229, 9, 20, 0.34), transparent 38%),
+      radial-gradient(circle at 100% 6%, rgba(47, 128, 237, 0.22), transparent 36%),
+      linear-gradient(130deg, #211013 0%, #0f1418 45%, #050505 100%);
+    background-attachment: fixed;
+    background-size: cover;
+  }
+
   .profile-stage,
   .inside-view {
     padding: 24px 18px 104px;
   }
 
   .household-setup {
+    gap: 22px;
+    min-height: 100svh;
+    overflow: hidden;
     padding: 24px 18px 56px;
   }
 
   .household-card {
     justify-self: stretch;
+  }
+
+  .household-hero {
+    margin-top: clamp(38px, 11vh, 92px);
+    max-width: 100%;
+  }
+
+  .household-hero h1 {
+    font-size: clamp(3.05rem, 16vw, 5rem);
+    line-height: 0.94;
+    overflow-wrap: anywhere;
+  }
+
+  .household-hero p:not(.eyebrow) {
+    max-width: 92vw;
+  }
+
+  .household-icon {
+    height: 58px;
+    width: 58px;
+  }
+
+  .setup-choice {
+    min-height: 112px;
+    padding: 16px;
   }
 
   .household-pill {

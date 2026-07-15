@@ -972,6 +972,8 @@ export default function HomePage() {
   const [pinError, setPinError] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState("");
+  const pendingVoiceHandlerRef = useRef<((transcript: string) => void) | null>(null);
+  const speechFallbackTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -1450,6 +1452,11 @@ export default function HomePage() {
   }
 
   function speakAssistant(message: string, onDone?: () => void) {
+    if (speechFallbackTimerRef.current) {
+      window.clearTimeout(speechFallbackTimerRef.current);
+      speechFallbackTimerRef.current = null;
+    }
+
     if (!("speechSynthesis" in window)) {
       onDone?.();
       return;
@@ -1457,12 +1464,30 @@ export default function HomePage() {
 
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(message);
+    let didFinish = false;
+    const finish = () => {
+      if (didFinish) {
+        return;
+      }
+
+      didFinish = true;
+      if (speechFallbackTimerRef.current) {
+        window.clearTimeout(speechFallbackTimerRef.current);
+        speechFallbackTimerRef.current = null;
+      }
+      onDone?.();
+    };
+
     utterance.lang = "pt-BR";
     utterance.rate = 1;
     utterance.pitch = 1.05;
-    utterance.onend = () => onDone?.();
-    utterance.onerror = () => onDone?.();
+    utterance.onend = finish;
+    utterance.onerror = finish;
     window.speechSynthesis.speak(utterance);
+    speechFallbackTimerRef.current = window.setTimeout(
+      finish,
+      Math.max(1400, Math.min(4600, message.length * 55)),
+    );
   }
 
   function showAssistantMessage(message: string, shouldSpeak = true) {
@@ -1499,6 +1524,7 @@ export default function HomePage() {
     };
     recognition.onresult = (event) => {
       const transcript = event.results[0]?.[0]?.transcript ?? "";
+      pendingVoiceHandlerRef.current = null;
       onTranscript(transcript);
     };
 
@@ -1511,9 +1537,14 @@ export default function HomePage() {
   }
 
   function askAssistant(message: string, onTranscript: (transcript: string) => void) {
+    pendingVoiceHandlerRef.current = onTranscript;
     setVoiceMessage(message);
     speakAssistant(message, () => {
-      setVoiceMessage("Estou ouvindo...");
+      if (pendingVoiceHandlerRef.current !== onTranscript) {
+        return;
+      }
+
+      setVoiceMessage("Estou ouvindo... Se o iPhone não abrir o microfone, toque nele e responda.");
       startVoiceRecognition(onTranscript);
     });
   }
@@ -1672,6 +1703,17 @@ export default function HomePage() {
   }
 
   function handleVoiceAssistant() {
+    if (isListening) {
+      return;
+    }
+
+    if (pendingVoiceHandlerRef.current) {
+      const pendingHandler = pendingVoiceHandlerRef.current;
+      setVoiceMessage("Estou ouvindo sua resposta...");
+      startVoiceRecognition(pendingHandler);
+      return;
+    }
+
     showAssistantMessage("Estou tentando abrir o microfone...", false);
     setVoiceMessage("Estou ouvindo. Pode falar, por exemplo: adicionar lembrete.");
     startVoiceRecognition(runVoiceCommand);
@@ -2091,7 +2133,7 @@ function HouseholdSetup({
               type="button"
               onClick={() => {
                 setMode("create");
-                setStep(1);
+                setStep(2);
               }}
             >
               <House size={24} />
@@ -2103,7 +2145,7 @@ function HouseholdSetup({
               type="button"
               onClick={() => {
                 setMode("join");
-                setStep(1);
+                setStep(2);
               }}
             >
               <KeyRound size={24} />
@@ -2172,7 +2214,7 @@ function HouseholdSetup({
               Voltar
             </button>
           ) : null}
-          {step < totalSteps ? (
+          {step === 1 ? null : step < totalSteps ? (
             <button className="primary-action" type="button" onClick={goNext} disabled={!canGoNext}>
               Próximo
               <ChevronRight size={18} />
