@@ -21,7 +21,17 @@
 
 html,
 body {
+  background:
+    radial-gradient(circle at 8% 24%, rgba(229, 9, 20, 0.28), transparent 34%),
+    radial-gradient(circle at 88% 12%, rgba(47, 128, 237, 0.18), transparent 32%),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.08), transparent 26%),
+    linear-gradient(180deg, #161616 0%, #070707 48%, #000 100%);
+  background-color: #050505;
   min-height: 100%;
+}
+
+html {
+  color-scheme: dark;
 }
 
 body {
@@ -65,6 +75,7 @@ a {
 
 .screen-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   position: relative;
   view-transition-name: app-screen;
@@ -130,7 +141,8 @@ html[data-transition="back"]::view-transition-new(app-screen) {
   margin: 0 auto;
   max-width: 1120px;
   min-height: 100vh;
-  padding: 34px 28px 118px;
+  min-height: 100dvh;
+  padding: calc(34px + env(safe-area-inset-top)) 28px calc(118px + env(safe-area-inset-bottom));
 }
 
 .simple-header {
@@ -178,7 +190,8 @@ html[data-transition="back"]::view-transition-new(app-screen) {
   margin: 0 auto;
   max-width: 980px;
   min-height: 100vh;
-  padding: 34px 28px 72px;
+  min-height: 100dvh;
+  padding: calc(34px + env(safe-area-inset-top)) 28px calc(72px + env(safe-area-inset-bottom));
   position: relative;
 }
 
@@ -626,6 +639,37 @@ html[data-transition="back"]::view-transition-new(app-screen) {
 
 .auth-card .view-toggle {
   margin-bottom: 2px;
+}
+
+.saved-access-button {
+  align-items: center;
+  backdrop-filter: blur(18px) saturate(160%);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)),
+    rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  gap: 10px;
+  justify-content: center;
+  min-height: 50px;
+  padding: 0 16px;
+  width: 100%;
+}
+
+.saved-access-button:hover,
+.saved-access-button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.32);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.saved-access-hint {
+  color: rgba(255, 255, 255, 0.66);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-size: 0.86rem;
+  line-height: 1.35;
+  margin: -4px 0 0;
 }
 
 .invite-modal {

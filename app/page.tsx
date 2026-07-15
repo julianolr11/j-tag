@@ -144,6 +144,7 @@ const STORAGE_KEY = "jtag-mvp-state-v2";
 const LAST_RESIDENT_KEY = "jtag-last-resident-id-v2";
 const CALENDAR_VIEW_KEY = "jtag-calendar-view-mode";
 const RECENT_HOUSEHOLDS_KEY = "jtag-recent-households-v1";
+const LAST_AUTH_EMAIL_KEY = "jtag-last-auth-email-v1";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
@@ -2500,19 +2501,60 @@ function AuthGate({
   onSubmit: (mode: "sign-in" | "sign-up", email: string, password: string) => void;
 }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [email, setEmail] = useState("");
+  const [savedAccessStatus, setSavedAccessStatus] = useState("");
+  const passwordRef = useRef<HTMLInputElement>(null);
   const isSignUp = mode === "sign-up";
+
+  useEffect(() => {
+    setEmail(window.localStorage.getItem(LAST_AUTH_EMAIL_KEY) ?? "");
+  }, []);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const email = String(form.get("email") ?? "");
+    const emailValue = email.trim();
     const password = String(form.get("password") ?? "");
 
-    if (!email || password.length < 6) {
+    if (!emailValue || password.length < 6) {
       return;
     }
 
-    onSubmit(mode, email, password);
+    window.localStorage.setItem(LAST_AUTH_EMAIL_KEY, emailValue);
+    onSubmit(mode, emailValue, password);
+  }
+
+  async function handleSavedAccess() {
+    setSavedAccessStatus("Procurando senha salva no aparelho...");
+
+    try {
+      const credentialStore = navigator.credentials as
+        | (CredentialsContainer & {
+            get(options: { password?: boolean; mediation?: CredentialMediationRequirement }): Promise<Credential | null>;
+          })
+        | undefined;
+
+      const credential = await credentialStore?.get({
+        password: true,
+        mediation: "optional",
+      });
+      const passwordCredential = credential as (Credential & { id?: string; password?: string }) | null;
+
+      if (passwordCredential?.id && passwordCredential.password) {
+        setEmail(passwordCredential.id);
+        window.localStorage.setItem(LAST_AUTH_EMAIL_KEY, passwordCredential.id);
+        if (passwordRef.current) {
+          passwordRef.current.value = passwordCredential.password;
+        }
+        onSubmit("sign-in", passwordCredential.id, passwordCredential.password);
+        return;
+      }
+    } catch {
+      // Some browsers only expose saved passwords through keyboard/autofill UI.
+    }
+
+    passwordRef.current?.focus();
+    setSavedAccessStatus("Toque na senha sugerida pelo teclado e confirme com Face ID ou digital.");
   }
 
   return (
@@ -2545,9 +2587,24 @@ function AuthGate({
             Criar conta
           </button>
         </div>
+        {!isSignUp ? (
+          <button className="saved-access-button" type="button" onClick={() => void handleSavedAccess()}>
+            <LockKeyhole size={18} />
+            Entrar com Face ID/digital
+          </button>
+        ) : null}
         <div className="field">
           <label htmlFor="auth-email">E-mail</label>
-          <input id="auth-email" name="email" autoComplete="email" inputMode="email" placeholder="voce@email.com" required />
+          <input
+            id="auth-email"
+            name="email"
+            autoComplete="email username"
+            inputMode="email"
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="voce@email.com"
+            required
+            value={email}
+          />
         </div>
         <div className="field">
           <label htmlFor="auth-password">Senha</label>
@@ -2557,10 +2614,12 @@ function AuthGate({
             autoComplete={isSignUp ? "new-password" : "current-password"}
             minLength={6}
             placeholder="No mínimo 6 caracteres"
+            ref={passwordRef}
             type="password"
             required
           />
         </div>
+        {!isSignUp && savedAccessStatus ? <p className="saved-access-hint">{savedAccessStatus}</p> : null}
         <button className="primary-action" type="submit">
           <Check size={18} />
           {isSignUp ? "Criar conta" : "Entrar"}
