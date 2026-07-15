@@ -1,5 +1,6 @@
 "use client";
 
+import { createClient } from "@supabase/supabase-js";
 import {
   Cake,
   Bell,
@@ -12,6 +13,7 @@ import {
   FileText,
   HeartPulse,
   House,
+  KeyRound,
   Lightbulb,
   LockKeyhole,
   Mic,
@@ -21,6 +23,7 @@ import {
   Plus,
   ShoppingCart,
   Siren,
+  Users,
   Trash2,
   UserPlus,
   X,
@@ -58,11 +61,27 @@ type EmergencyContact = {
   phone: string;
 };
 
+type Household = {
+  id: string;
+  name: string;
+  code: string;
+  createdAt: string;
+  ownerResidentId?: string;
+  joinedByCode?: boolean;
+};
+
 type AppState = {
+  household: Household | null;
   residents: Resident[];
   reminders: Reminder[];
   birthdays: Birthday[];
   emergencyContacts: EmergencyContact[];
+};
+
+type StarterResidentInput = {
+  name: string;
+  role: string;
+  pin: string;
 };
 
 type ContactPickerContact = {
@@ -77,6 +96,10 @@ type ContactPickerNavigator = Navigator & {
       options?: { multiple?: boolean },
     ) => Promise<ContactPickerContact[]>;
   };
+};
+
+type ShareNavigator = Navigator & {
+  share?: (data: { title?: string; text?: string; url?: string }) => Promise<void>;
 };
 
 type ViewTransitionDocument = Document & {
@@ -115,12 +138,57 @@ type SpeechRecognitionWindow = Window & {
   webkitSpeechRecognition?: new () => SpeechRecognitionInstance;
 };
 
-const STORAGE_KEY = "jtag-mvp-state";
-const LAST_RESIDENT_KEY = "jtag-last-resident-id";
+const STORAGE_KEY = "jtag-mvp-state-v2";
+const LAST_RESIDENT_KEY = "jtag-last-resident-id-v2";
 const CALENDAR_VIEW_KEY = "jtag-calendar-view-mode";
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase =
+  SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 
 type CalendarViewMode = "calendar" | "list";
 type ReminderIcon = "general" | "shopping" | "lightbulb" | "medicine" | "home" | "document";
+
+type HouseholdRow = {
+  id: string;
+  name: string;
+  code: string;
+  owner_resident_id: string | null;
+  created_at: string;
+};
+
+type ResidentRow = {
+  id: string;
+  household_id: string;
+  name: string;
+  role: string;
+  pin: string;
+  color: string;
+  photo_url: string | null;
+};
+
+type ReminderRow = {
+  id: string;
+  household_id: string;
+  resident_id: string;
+  text: string;
+  date: string;
+  icon: string;
+};
+
+type BirthdayRow = {
+  id: string;
+  household_id: string;
+  name: string;
+  date: string;
+};
+
+type EmergencyContactRow = {
+  id: string;
+  household_id: string;
+  name: string;
+  phone: string;
+};
 
 const reminderIconOptions: Array<{
   id: ReminderIcon;
@@ -130,7 +198,7 @@ const reminderIconOptions: Array<{
   { id: "general", label: "Geral", Icon: Bell },
   { id: "shopping", label: "Compra", Icon: ShoppingCart },
   { id: "lightbulb", label: "Ideia", Icon: Lightbulb },
-  { id: "medicine", label: "Remedio", Icon: Pill },
+  { id: "medicine", label: "Remédio", Icon: Pill },
   { id: "home", label: "Casa", Icon: House },
   { id: "document", label: "Documento", Icon: FileText },
 ];
@@ -140,59 +208,10 @@ const reminderIconMap = Object.fromEntries(
 ) as Record<ReminderIcon, (typeof reminderIconOptions)[number]>;
 
 const defaultState: AppState = {
-  residents: [
-    {
-      id: "julia",
-      name: "Julia",
-      role: "Admin",
-      pin: "1234",
-      color: "#e50914",
-    },
-    {
-      id: "visitante",
-      name: "Visitante",
-      role: "Acesso rapido",
-      pin: "0000",
-      color: "#2f80ed",
-    },
-  ],
-  reminders: [
-    {
-      id: "r1",
-      residentId: "julia",
-      text: "Comprar pilhas para as etiquetas NFC",
-      date: "2026-07-15",
-      icon: "shopping",
-    },
-    {
-      id: "r2",
-      residentId: "julia",
-      text: "Separar documentos da consulta",
-      date: "2026-07-14",
-      icon: "document",
-    },
-    {
-      id: "r3",
-      residentId: "julia",
-      text: "Ligar para confirmar entrega",
-      date: "2026-07-16",
-      icon: "general",
-    },
-    {
-      id: "r4",
-      residentId: "julia",
-      text: "Comprar presente de aniversario",
-      date: "2026-07-20",
-      icon: "shopping",
-    },
-  ],
-  birthdays: [
-    { id: "b1", name: "Mae", date: "10/07" },
-    { id: "b2", name: "Julia", date: "15/07" },
-    { id: "b3", name: "Tio Carlos", date: "20/07" },
-    { id: "b4", name: "Ana", date: "02/08" },
-    { id: "b5", name: "Pedro", date: "12/09" },
-  ],
+  household: null,
+  residents: [],
+  reminders: [],
+  birthdays: [],
   emergencyContacts: [],
 };
 
@@ -258,6 +277,33 @@ function normalizeReminder(reminder: Reminder): Reminder {
   };
 }
 
+function generateHouseholdCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+}
+
+function normalizeHouseholdCode(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase()
+    .slice(0, 8);
+}
+
+function buildInviteText(household: Household) {
+  const inviteLink = buildInviteLink(household);
+  return `Convite para entrar na família ${household.name} no J-tag. Código da casa: ${household.code}${inviteLink ? `\n${inviteLink}` : ""}`;
+}
+
+function buildInviteLink(household: Household) {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return `${window.location.origin}?lar=${household.code}`;
+}
+
 function loadState(): AppState {
   if (typeof window === "undefined") {
     return defaultState;
@@ -274,6 +320,7 @@ function loadState(): AppState {
     return {
       ...defaultState,
       ...parsed,
+      household: parsed.household ?? null,
       reminders: mergeSeedItems(parsed.reminders, defaultState.reminders).map(normalizeReminder),
       birthdays: mergeSeedItems(parsed.birthdays, defaultState.birthdays),
       emergencyContacts: parsed.emergencyContacts ?? [],
@@ -289,6 +336,251 @@ function loadState(): AppState {
 
 function saveState(state: AppState) {
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function mapHousehold(row: HouseholdRow): Household {
+  return {
+    id: row.id,
+    name: row.name,
+    code: row.code,
+    createdAt: row.created_at,
+    ownerResidentId: row.owner_resident_id ?? undefined,
+  };
+}
+
+function mapResident(row: ResidentRow): Resident {
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    pin: row.pin,
+    color: row.color,
+    photo: row.photo_url ?? undefined,
+  };
+}
+
+function mapReminder(row: ReminderRow): Reminder {
+  return normalizeReminder({
+    id: row.id,
+    residentId: row.resident_id,
+    text: row.text,
+    date: row.date,
+    icon: isReminderIcon(row.icon) ? row.icon : "general",
+  });
+}
+
+function mapBirthday(row: BirthdayRow): Birthday {
+  return {
+    id: row.id,
+    name: row.name,
+    date: row.date,
+  };
+}
+
+function mapEmergencyContact(row: EmergencyContactRow): EmergencyContact {
+  return {
+    id: row.id,
+    name: row.name,
+    phone: row.phone,
+  };
+}
+
+async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppState | null> {
+  if (!supabase) {
+    return null;
+  }
+
+  const [residentsResult, remindersResult, birthdaysResult, contactsResult] = await Promise.all([
+    supabase.from("residents").select("*").eq("household_id", household.id).order("created_at"),
+    supabase.from("reminders").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
+    supabase.from("birthdays").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
+    supabase.from("emergency_contacts").select("*").eq("household_id", household.id).order("created_at"),
+  ]);
+
+  if (residentsResult.error || remindersResult.error || birthdaysResult.error || contactsResult.error) {
+    return null;
+  }
+
+  return {
+    household: mapHousehold(household),
+    residents: ((residentsResult.data ?? []) as ResidentRow[]).map(mapResident),
+    reminders: ((remindersResult.data ?? []) as ReminderRow[]).map(mapReminder),
+    birthdays: ((birthdaysResult.data ?? []) as BirthdayRow[]).map(mapBirthday),
+    emergencyContacts: ((contactsResult.data ?? []) as EmergencyContactRow[]).map(mapEmergencyContact),
+  };
+}
+
+async function loadRemoteStateByCode(code: string) {
+  if (!supabase || !code) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("households")
+    .select("*")
+    .eq("code", normalizeHouseholdCode(code))
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return loadRemoteStateByHousehold(data as HouseholdRow);
+}
+
+async function loadRemoteStateById(householdId: string) {
+  if (!supabase || !householdId) {
+    return null;
+  }
+
+  const { data, error } = await supabase.from("households").select("*").eq("id", householdId).maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  return loadRemoteStateByHousehold(data as HouseholdRow);
+}
+
+async function createRemoteHousehold(household: Household, resident: Resident) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error: householdError } = await supabase.from("households").insert({
+    id: household.id,
+    name: household.name,
+    code: household.code,
+    created_at: household.createdAt,
+  });
+
+  if (householdError) {
+    return false;
+  }
+
+  const { error: residentError } = await supabase.from("residents").insert({
+    id: resident.id,
+    household_id: household.id,
+    name: resident.name,
+    role: resident.role,
+    pin: resident.pin,
+    color: resident.color,
+    photo_url: resident.photo ?? null,
+  });
+
+  if (residentError) {
+    return false;
+  }
+
+  await supabase.from("households").update({ owner_resident_id: resident.id }).eq("id", household.id);
+  await supabase.from("household_invites").insert({
+    household_id: household.id,
+    code: household.code,
+    created_by_resident_id: resident.id,
+  });
+
+  return true;
+}
+
+async function insertRemoteResident(householdId: string, resident: Resident) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("residents").insert({
+    id: resident.id,
+    household_id: householdId,
+    name: resident.name,
+    role: resident.role,
+    pin: resident.pin,
+    color: resident.color,
+    photo_url: resident.photo ?? null,
+  });
+
+  return !error;
+}
+
+async function updateRemoteResident(resident: Resident) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase
+    .from("residents")
+    .update({
+      name: resident.name,
+      role: resident.role,
+      pin: resident.pin,
+      photo_url: resident.photo ?? null,
+    })
+    .eq("id", resident.id);
+
+  return !error;
+}
+
+async function deleteRemoteResident(residentId: string) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("residents").delete().eq("id", residentId);
+  return !error;
+}
+
+async function insertRemoteReminder(householdId: string, reminder: Reminder) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("reminders").insert({
+    id: reminder.id,
+    household_id: householdId,
+    resident_id: reminder.residentId,
+    text: reminder.text,
+    date: reminder.date,
+    icon: reminder.icon ?? "general",
+  });
+
+  return !error;
+}
+
+async function insertRemoteBirthday(householdId: string, birthday: Birthday) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("birthdays").insert({
+    id: birthday.id,
+    household_id: householdId,
+    name: birthday.name,
+    date: birthday.date,
+  });
+
+  return !error;
+}
+
+async function insertRemoteEmergencyContact(householdId: string, contact: EmergencyContact) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("emergency_contacts").insert({
+    id: contact.id,
+    household_id: householdId,
+    name: contact.name,
+    phone: contact.phone,
+  });
+
+  return !error;
+}
+
+async function deleteRemoteEmergencyContact(contactId: string) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("emergency_contacts").delete().eq("id", contactId);
+  return !error;
 }
 
 function saveLastResident(residentId: string) {
@@ -669,6 +961,8 @@ export default function HomePage() {
   const [showSplash, setShowSplash] = useState(true);
   const [showNewResident, setShowNewResident] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
+  const [showHouseholdInvite, setShowHouseholdInvite] = useState(false);
+  const [pendingInviteCode, setPendingInviteCode] = useState("");
   const [profileModal, setProfileModal] = useState<
     "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | null
   >(null);
@@ -680,18 +974,49 @@ export default function HomePage() {
   const [voiceMessage, setVoiceMessage] = useState("");
 
   useEffect(() => {
+    let isMounted = true;
     const storedState = loadState();
     const lastResidentId = window.localStorage.getItem(LAST_RESIDENT_KEY);
     const lastResident = storedState.residents.find((resident) => resident.id === lastResidentId);
+    const inviteCode = normalizeHouseholdCode(new URLSearchParams(window.location.search).get("lar") ?? "");
 
     setAppState(storedState);
-    if (lastResident) {
+    if (storedState.household && lastResident) {
       setActiveResident(lastResident);
     }
+    if (!storedState.household && inviteCode) {
+      setPendingInviteCode(inviteCode);
+    }
+
+    async function hydrateRemoteState() {
+      const remoteState = inviteCode
+        ? await loadRemoteStateByCode(inviteCode)
+        : storedState.household
+          ? await loadRemoteStateById(storedState.household.id)
+          : null;
+
+      if (!isMounted || !remoteState) {
+        return;
+      }
+
+      const remoteLastResident = remoteState.residents.find((resident) => resident.id === lastResidentId);
+      setAppState(remoteState);
+      if (remoteLastResident) {
+        setActiveResident(remoteLastResident);
+      }
+      if (inviteCode) {
+        setPendingInviteCode(inviteCode);
+      }
+    }
+
+    hydrateRemoteState();
 
     const timer = window.setTimeout(() => setShowSplash(false), 1350);
 
-    return () => window.clearTimeout(timer);
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -709,6 +1034,138 @@ export default function HomePage() {
   }, [activeResident, appState.reminders]);
   const reminderPreview = useMemo(() => getReminderPreview(activeReminders), [activeReminders]);
   const birthdayPreview = useMemo(() => getBirthdayPreview(appState.birthdays), [appState.birthdays]);
+
+  function createResidentFromInput(input: StarterResidentInput, roleFallback: string) {
+    const name = input.name.trim();
+    const role = input.role.trim();
+    const newPin = input.pin.trim();
+
+    if (!name || newPin.length !== 4) {
+      return null;
+    }
+
+    return {
+      id: crypto.randomUUID(),
+      name,
+      role: role || roleFallback,
+      pin: newPin,
+      color: ["#e50914", "#2f80ed", "#f2994a", "#27ae60"][appState.residents.length % 4],
+      photo: newResidentPhoto || undefined,
+    } satisfies Resident;
+  }
+
+  async function handleCreateHousehold(householdNameValue: string, residentInput: StarterResidentInput) {
+    const householdName = householdNameValue.trim();
+    const resident = createResidentFromInput(residentInput, "Admin da casa");
+
+    if (!householdName || !resident) {
+      return;
+    }
+
+    const household: Household = {
+      id: crypto.randomUUID(),
+      name: householdName,
+      code: generateHouseholdCode(),
+      createdAt: new Date().toISOString(),
+      ownerResidentId: resident.id,
+    };
+
+    await createRemoteHousehold(household, resident);
+    saveLastResident(resident.id);
+    runScreenTransition("enter", () => {
+      setAppState({
+        ...defaultState,
+        household,
+        residents: [resident],
+      });
+      setActiveResident(resident);
+      setNewResidentPhoto("");
+      setShowHouseholdInvite(true);
+    });
+  }
+
+  async function handleJoinHousehold(codeValue: string, residentInput: StarterResidentInput) {
+    const code = normalizeHouseholdCode(codeValue);
+    const resident = createResidentFromInput(residentInput, "Morador");
+
+    if (code.length < 4 || !resident) {
+      return;
+    }
+
+    const remoteState = await loadRemoteStateByCode(code);
+    const household: Household =
+      remoteState?.household ?? {
+        id: crypto.randomUUID(),
+        name: `Lar ${code}`,
+        code,
+        createdAt: new Date().toISOString(),
+        joinedByCode: true,
+      };
+
+    await insertRemoteResident(household.id, resident);
+
+    saveLastResident(resident.id);
+    runScreenTransition("enter", () => {
+      setAppState({
+        ...(remoteState ?? defaultState),
+        household,
+        residents: [...(remoteState?.residents ?? []), resident],
+      });
+      setPendingInviteCode("");
+      setActiveResident(resident);
+      setNewResidentPhoto("");
+    });
+  }
+
+  async function copyHouseholdInvite() {
+    if (!appState.household) {
+      return;
+    }
+
+    await navigator.clipboard?.writeText(buildInviteText(appState.household));
+  }
+
+  async function shareHouseholdInvite() {
+    if (!appState.household) {
+      return;
+    }
+
+    const text = buildInviteText(appState.household);
+    const shareNavigator = navigator as ShareNavigator;
+    if (shareNavigator.share) {
+      await shareNavigator.share({
+        title: `Convite ${appState.household.name}`,
+        text,
+      });
+      return;
+    }
+
+    await navigator.clipboard?.writeText(text);
+  }
+
+  async function handleRemoveHouseholdResident(residentId: string) {
+    if (!activeResident || appState.household?.ownerResidentId !== activeResident.id) {
+      return;
+    }
+
+    if (residentId === activeResident.id) {
+      return;
+    }
+
+    const targetResident = appState.residents.find((resident) => resident.id === residentId);
+    const shouldDelete = window.confirm(`Remover ${targetResident?.name ?? "este morador"} da família?`);
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    await deleteRemoteResident(residentId);
+    setAppState((current) => ({
+      ...current,
+      residents: current.residents.filter((resident) => resident.id !== residentId),
+      reminders: current.reminders.filter((reminder) => reminder.residentId !== residentId),
+    }));
+  }
 
   function handleSelectResident(resident: Resident) {
     setSelectedResident(resident);
@@ -775,8 +1232,11 @@ export default function HomePage() {
     setEditResidentPhoto(photo);
   }
 
-  function handleAddResident(event: FormEvent<HTMLFormElement>) {
+  async function handleAddResident(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!appState.household) {
+      return;
+    }
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") ?? "").trim();
     const role = String(form.get("role") ?? "").trim();
@@ -797,6 +1257,7 @@ export default function HomePage() {
       photo: newResidentPhoto || undefined,
     };
 
+    await insertRemoteResident(appState.household.id, resident);
     setAppState((current) => ({
       ...current,
       residents: [...current.residents, resident],
@@ -805,9 +1266,9 @@ export default function HomePage() {
     setShowNewResident(false);
   }
 
-  function handleAddReminder(event: FormEvent<HTMLFormElement>) {
+  async function handleAddReminder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!activeResident) {
+    if (!activeResident || !appState.household) {
       return;
     }
 
@@ -820,24 +1281,27 @@ export default function HomePage() {
       return;
     }
 
+    const reminder: Reminder = {
+      id: crypto.randomUUID(),
+      residentId: activeResident.id,
+      text,
+      date: date || "Hoje",
+      icon: isReminderIcon(icon) ? icon : "general",
+    };
+
+    await insertRemoteReminder(appState.household.id, reminder);
     setAppState((current) => ({
       ...current,
-      reminders: [
-        {
-          id: crypto.randomUUID(),
-          residentId: activeResident.id,
-          text,
-          date: date || "Hoje",
-          icon: isReminderIcon(icon) ? icon : "general",
-        },
-        ...current.reminders,
-      ],
+      reminders: [reminder, ...current.reminders],
     }));
     setProfileModal(null);
   }
 
-  function handleAddBirthday(event: FormEvent<HTMLFormElement>) {
+  async function handleAddBirthday(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!appState.household) {
+      return;
+    }
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") ?? "").trim();
     const date = String(form.get("date") ?? "").trim();
@@ -846,21 +1310,21 @@ export default function HomePage() {
       return;
     }
 
+    const birthday: Birthday = {
+      id: crypto.randomUUID(),
+      name,
+      date: formatBirthdayValue(date),
+    };
+
+    await insertRemoteBirthday(appState.household.id, birthday);
     setAppState((current) => ({
       ...current,
-      birthdays: [
-        {
-          id: crypto.randomUUID(),
-          name,
-          date: formatBirthdayValue(date),
-        },
-        ...current.birthdays,
-      ],
+      birthdays: [birthday, ...current.birthdays],
     }));
     setProfileModal(null);
   }
 
-  function handleUpdateResident(event: FormEvent<HTMLFormElement>) {
+  async function handleUpdateResident(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeResident) {
       return;
@@ -883,6 +1347,7 @@ export default function HomePage() {
       photo: editResidentPhoto || activeResident.photo,
     };
 
+    await updateRemoteResident(updatedResident);
     setAppState((current) => ({
       ...current,
       residents: current.residents.map((resident) =>
@@ -894,7 +1359,7 @@ export default function HomePage() {
     setProfileModal(null);
   }
 
-  function handleDeleteResident() {
+  async function handleDeleteResident() {
     if (!activeResident) {
       return;
     }
@@ -904,6 +1369,7 @@ export default function HomePage() {
       return;
     }
 
+    await deleteRemoteResident(activeResident.id);
     setAppState((current) => ({
       ...current,
       residents: current.residents.filter((resident) => resident.id !== activeResident.id),
@@ -917,7 +1383,7 @@ export default function HomePage() {
     });
   }
 
-  function addEmergencyContact(name: string, phone: string) {
+  async function addEmergencyContact(name: string, phone: string) {
     const cleanName = name.trim();
     const cleanPhone = phone.trim();
 
@@ -925,23 +1391,26 @@ export default function HomePage() {
       return;
     }
 
+    const contact: EmergencyContact = {
+      id: crypto.randomUUID(),
+      name: cleanName,
+      phone: cleanPhone,
+    };
+
+    if (appState.household) {
+      await insertRemoteEmergencyContact(appState.household.id, contact);
+    }
+
     setAppState((current) => ({
       ...current,
-      emergencyContacts: [
-        ...current.emergencyContacts,
-        {
-          id: crypto.randomUUID(),
-          name: cleanName,
-          phone: cleanPhone,
-        },
-      ],
+      emergencyContacts: [...current.emergencyContacts, contact],
     }));
   }
 
   function handleAddEmergencyContact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    addEmergencyContact(String(form.get("name") ?? ""), String(form.get("phone") ?? ""));
+    void addEmergencyContact(String(form.get("name") ?? ""), String(form.get("phone") ?? ""));
     event.currentTarget.reset();
   }
 
@@ -949,7 +1418,7 @@ export default function HomePage() {
     const contactNavigator = navigator as ContactPickerNavigator;
 
     if (!contactNavigator.contacts?.select) {
-      window.alert("Este navegador ainda nao permite escolher contatos. Cadastre manualmente.");
+      window.alert("Este navegador ainda não permite escolher contatos. Cadastre manualmente.");
       return;
     }
 
@@ -958,10 +1427,11 @@ export default function HomePage() {
     const name = contact?.name?.[0] ?? "";
     const phone = contact?.tel?.[0] ?? "";
 
-    addEmergencyContact(name, phone);
+    await addEmergencyContact(name, phone);
   }
 
-  function handleRemoveEmergencyContact(contactId: string) {
+  async function handleRemoveEmergencyContact(contactId: string) {
+    await deleteRemoteEmergencyContact(contactId);
     setAppState((current) => ({
       ...current,
       emergencyContacts: current.emergencyContacts.filter((contact) => contact.id !== contactId),
@@ -1009,7 +1479,7 @@ export default function HomePage() {
       speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      showAssistantMessage("Eu nao consigo ouvir neste navegador. Use os botoes + ou tente abrir no Chrome.");
+      showAssistantMessage("Eu não consigo ouvir neste navegador. Use os botões + ou tente abrir no Chrome.");
       return;
     }
 
@@ -1023,8 +1493,8 @@ export default function HomePage() {
       setIsListening(false);
       showAssistantMessage(
         event.error === "not-allowed" || event.error === "service-not-allowed"
-          ? "Eu nao tenho permissao para usar o microfone. Libere o acesso ou use os botoes +."
-          : "Nao consegui ouvir direito. Tente de novo ou use os botoes +.",
+          ? "Eu não tenho permissão para usar o microfone. Libere o acesso ou use os botões +."
+          : "Não consegui ouvir direito. Tente de novo ou use os botões +.",
       );
     };
     recognition.onresult = (event) => {
@@ -1036,7 +1506,7 @@ export default function HomePage() {
       recognition.start();
     } catch {
       setIsListening(false);
-      showAssistantMessage("Nao consegui iniciar o microfone aqui. Tente no Chrome ou use os botoes +.");
+      showAssistantMessage("Não consegui iniciar o microfone aqui. Tente no Chrome ou use os botões +.");
     }
   }
 
@@ -1048,29 +1518,29 @@ export default function HomePage() {
     });
   }
 
-  function addReminderFromVoice(text: string, date: string) {
-    if (!activeResident) {
+  async function addReminderFromVoice(text: string, date: string) {
+    if (!activeResident || !appState.household) {
       showAssistantMessage("Escolha um perfil antes de criar lembretes por voz.");
       return;
     }
 
+    const reminder: Reminder = {
+      id: crypto.randomUUID(),
+      residentId: activeResident.id,
+      text,
+      date,
+      icon: inferReminderIcon({
+        id: "voice",
+        residentId: activeResident.id,
+        text,
+        date,
+      }),
+    };
+
+    await insertRemoteReminder(appState.household.id, reminder);
     setAppState((current) => ({
       ...current,
-      reminders: [
-        {
-          id: crypto.randomUUID(),
-          residentId: activeResident.id,
-          text,
-          date,
-          icon: inferReminderIcon({
-            id: "voice",
-            residentId: activeResident.id,
-            text,
-            date,
-          }),
-        },
-        ...current.reminders,
-      ],
+      reminders: [reminder, ...current.reminders],
     }));
     showAssistantMessage(`Pronto, adicionei o lembrete: ${text}.`);
   }
@@ -1080,21 +1550,21 @@ export default function HomePage() {
       const date = parseSpokenReminderDate(dateTranscript);
 
       if (!date) {
-        askAssistant("Nao entendi a data. Pode falar algo como amanhã, vinte de julho ou quinze de agosto?", (retry) => {
+        askAssistant("Não entendi a data. Pode falar algo como amanhã, vinte de julho ou quinze de agosto?", (retry) => {
           const retryDate = parseSpokenReminderDate(retry);
 
           if (!retryDate) {
-            showAssistantMessage("Ainda nao entendi a data. Abri o formulario para voce completar.");
+            showAssistantMessage("Ainda não entendi a data. Abri o formulário para você completar.");
             setProfileModal("reminder");
             return;
           }
 
-          addReminderFromVoice(text, retryDate);
+          void addReminderFromVoice(text, retryDate);
         });
         return;
       }
 
-      addReminderFromVoice(text, date);
+      void addReminderFromVoice(text, date);
     });
   }
 
@@ -1103,7 +1573,7 @@ export default function HomePage() {
       const text = textTranscript.trim();
 
       if (!text) {
-        showAssistantMessage("Nao consegui entender o lembrete. Tente de novo pelo botao de microfone.");
+        showAssistantMessage("Não consegui entender o lembrete. Tente de novo pelo botão de microfone.");
         return;
       }
 
@@ -1111,50 +1581,55 @@ export default function HomePage() {
     });
   }
 
-  function addBirthdayFromVoice(name: string, date: string) {
+  async function addBirthdayFromVoice(name: string, date: string) {
+    if (!appState.household) {
+      setProfileModal("birthday");
+      return;
+    }
+
+    const birthday: Birthday = {
+      id: crypto.randomUUID(),
+      name,
+      date,
+    };
+
+    await insertRemoteBirthday(appState.household.id, birthday);
     setAppState((current) => ({
       ...current,
-      birthdays: [
-        {
-          id: crypto.randomUUID(),
-          name,
-          date,
-        },
-        ...current.birthdays,
-      ],
+      birthdays: [birthday, ...current.birthdays],
     }));
-    showAssistantMessage(`Pronto, cadastrei o aniversario de ${name}.`);
+    showAssistantMessage(`Pronto, cadastrei o aniversário de ${name}.`);
   }
 
   function askBirthdayDate(name: string) {
-    askAssistant(`Quando é o aniversario de ${name}?`, (dateTranscript) => {
+    askAssistant(`Quando é o aniversário de ${name}?`, (dateTranscript) => {
       const date = parseSpokenBirthdayDate(dateTranscript);
 
       if (!date) {
-        askAssistant("Nao entendi a data. Pode falar algo como quinze de agosto ou vinte barra sete?", (retry) => {
+        askAssistant("Não entendi a data. Pode falar algo como quinze de agosto ou vinte barra sete?", (retry) => {
           const retryDate = parseSpokenBirthdayDate(retry);
 
           if (!retryDate) {
-            showAssistantMessage("Ainda nao entendi a data. Abri o formulario para voce completar.");
+            showAssistantMessage("Ainda não entendi a data. Abri o formulário para você completar.");
             setProfileModal("birthday");
             return;
           }
 
-          addBirthdayFromVoice(name, retryDate);
+          void addBirthdayFromVoice(name, retryDate);
         });
         return;
       }
 
-      addBirthdayFromVoice(name, date);
+      void addBirthdayFromVoice(name, date);
     });
   }
 
   function startBirthdayVoiceFlow() {
-    askAssistant("De quem é o aniversario?", (nameTranscript) => {
+    askAssistant("De quem é o aniversário?", (nameTranscript) => {
       const name = nameTranscript.trim();
 
       if (!name) {
-        showAssistantMessage("Nao consegui entender o nome. Tente de novo pelo botao de microfone.");
+        showAssistantMessage("Não consegui entender o nome. Tente de novo pelo botão de microfone.");
         return;
       }
 
@@ -1173,13 +1648,13 @@ export default function HomePage() {
 
     if (command.includes("calendario") && command.includes("lembrete")) {
       setProfileModal("reminderCalendar");
-      showAssistantMessage("Vou te levar para o calendario de lembretes.");
+      showAssistantMessage("Vou te levar para o calendário de lembretes.");
       return;
     }
 
     if (command.includes("calendario") && command.includes("aniversario")) {
       setProfileModal("birthdayCalendar");
-      showAssistantMessage("Vou te levar para o calendario de aniversarios.");
+      showAssistantMessage("Vou te levar para o calendário de aniversários.");
       return;
     }
 
@@ -1193,13 +1668,35 @@ export default function HomePage() {
       return;
     }
 
-    showAssistantMessage("Eu nao entendi ainda. Tente falar: adicionar lembrete.");
+    showAssistantMessage("Eu não entendi ainda. Tente falar: adicionar lembrete.");
   }
 
   function handleVoiceAssistant() {
     showAssistantMessage("Estou tentando abrir o microfone...", false);
     setVoiceMessage("Estou ouvindo. Pode falar, por exemplo: adicionar lembrete.");
     startVoiceRecognition(runVoiceCommand);
+  }
+
+  if (!appState.household) {
+    return (
+      <main className="screen-shell">
+        {showSplash ? (
+          <section className="splash-screen" aria-label="Carregando J-Tag">
+            <div className="splash-logo">
+              <LogoMark size={76} />
+            </div>
+          </section>
+        ) : null}
+
+        <HouseholdSetup
+          inviteCode={pendingInviteCode}
+          photo={newResidentPhoto}
+          onCreate={handleCreateHousehold}
+          onJoin={handleJoinHousehold}
+          onPhotoChange={handlePhotoChange}
+        />
+      </main>
+    );
   }
 
   if (activeResident) {
@@ -1211,6 +1708,14 @@ export default function HomePage() {
               <LogoMark size={24} />
             </button>
             <div className="topbar-actions">
+              <button
+                className="icon-glass-button"
+                type="button"
+                onClick={() => setShowHouseholdInvite(true)}
+                aria-label="Convidar para o lar"
+              >
+                <Users size={20} />
+              </button>
               <button
                 className={`icon-glass-button voice-button ${isListening ? "listening" : ""}`}
                 type="button"
@@ -1279,7 +1784,7 @@ export default function HomePage() {
               )}
             </InfoPanel>
             <InfoPanel
-              title="Aniversarios"
+              title="Aniversários"
               onAdd={() => setProfileModal("birthday")}
               onOpen={() => setProfileModal("birthdayCalendar")}
             >
@@ -1296,7 +1801,7 @@ export default function HomePage() {
                   ))}
                 </div>
               ) : (
-                <p>Nenhum aniversario cadastrado.</p>
+                <p>Nenhum aniversário cadastrado.</p>
               )}
             </InfoPanel>
           </div>
@@ -1304,7 +1809,7 @@ export default function HomePage() {
           <div className="profile-action-row">
             <button className="emergency-button inline" type="button" onClick={() => setShowEmergency(true)}>
               <HeartPulse size={20} />
-              Emergencia
+              Emergência
             </button>
             <button className="switch-profile-button" type="button" onClick={handleSwitchProfile}>
               Trocar perfil
@@ -1346,7 +1851,7 @@ export default function HomePage() {
             kind="reminder"
             onClose={() => setProfileModal(null)}
             onCreate={() => setProfileModal("reminder")}
-            title="Calendario de lembretes"
+            title="Calendário de lembretes"
           />
         ) : null}
         {profileModal === "birthdayCalendar" ? (
@@ -1355,7 +1860,19 @@ export default function HomePage() {
             kind="birthday"
             onClose={() => setProfileModal(null)}
             onCreate={() => setProfileModal("birthday")}
-            title="Calendario de aniversarios"
+            title="Calendário de aniversários"
+          />
+        ) : null}
+        {showHouseholdInvite ? (
+          <HouseholdInviteModal
+            activeResidentId={activeResident.id}
+            canManageMembers={appState.household.ownerResidentId === activeResident.id}
+            household={appState.household}
+            residents={appState.residents}
+            onClose={() => setShowHouseholdInvite(false)}
+            onCopy={copyHouseholdInvite}
+            onRemoveResident={handleRemoveHouseholdResident}
+            onShare={shareHouseholdInvite}
           />
         ) : null}
       </main>
@@ -1376,6 +1893,11 @@ export default function HomePage() {
         <header className="simple-header">
           <button className="brand-button" type="button" aria-label="Inicio">
             <LogoMark size={24} />
+          </button>
+          <button className="household-pill" type="button" onClick={() => setShowHouseholdInvite(true)}>
+            <House size={17} />
+            <span>{appState.household.name}</span>
+            <strong>{appState.household.code}</strong>
           </button>
         </header>
 
@@ -1407,7 +1929,7 @@ export default function HomePage() {
 
         <button className="emergency-button fixed" type="button" onClick={() => setShowEmergency(true)}>
           <Siren size={22} />
-          Emergencia
+          Emergência
         </button>
       </section>
 
@@ -1444,7 +1966,386 @@ export default function HomePage() {
           onRemoveContact={handleRemoveEmergencyContact}
         />
       ) : null}
+      {showHouseholdInvite ? (
+        <HouseholdInviteModal
+          activeResidentId={undefined}
+          canManageMembers={false}
+          household={appState.household}
+          residents={appState.residents}
+          onClose={() => setShowHouseholdInvite(false)}
+          onCopy={copyHouseholdInvite}
+          onRemoveResident={handleRemoveHouseholdResident}
+          onShare={shareHouseholdInvite}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function HouseholdSetup({
+  inviteCode,
+  photo,
+  onCreate,
+  onJoin,
+  onPhotoChange,
+}: {
+  inviteCode: string;
+  photo: string;
+  onCreate: (householdName: string, resident: StarterResidentInput) => void;
+  onJoin: (code: string, resident: StarterResidentInput) => void;
+  onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const [mode, setMode] = useState<"create" | "join">(inviteCode ? "join" : "create");
+  const [step, setStep] = useState(1);
+  const [householdName, setHouseholdName] = useState("");
+  const [code, setCode] = useState(inviteCode);
+  const [resident, setResident] = useState<StarterResidentInput>({
+    name: "",
+    role: "",
+    pin: "",
+  });
+  const isCreateMode = mode === "create";
+  const totalSteps = isCreateMode ? 4 : 3;
+  const stepTitle =
+    step === 1
+      ? "Como você quer começar?"
+      : step === 2
+        ? isCreateMode
+          ? "Dê um nome para sua casa"
+          : "Digite o código da casa"
+        : step === 3
+          ? "Crie seu perfil"
+          : "Convide quem mora com você";
+  const stepDescription =
+    step === 1
+      ? "Escolha uma opção para preparar o acesso por NFC."
+      : step === 2
+        ? isCreateMode
+          ? "Esse nome aparece para todos os moradores."
+          : "Use o código enviado por alguém da casa."
+      : step === 3
+          ? "Esse PIN protege o perfil neste aparelho."
+          : "Depois de finalizar, o código do lar fica pronto para compartilhar.";
+  const canGoNext =
+    step === 1 ||
+    (step === 2 && (isCreateMode ? householdName.trim().length > 1 : normalizeHouseholdCode(code).length >= 4)) ||
+    (step === 3 && resident.name.trim().length > 1 && /^\d{4}$/.test(resident.pin)) ||
+    step === 4;
+
+  function goNext() {
+    if (!canGoNext) {
+      return;
+    }
+
+    setStep((current) => Math.min(current + 1, totalSteps));
+  }
+
+  function goBack() {
+    setStep((current) => Math.max(current - 1, 1));
+  }
+
+  function handleFinish() {
+    if (isCreateMode) {
+      onCreate(householdName, resident);
+      return;
+    }
+
+    onJoin(code, resident);
+  }
+
+  function updateResident(field: keyof StarterResidentInput, value: string) {
+    setResident((current) => ({
+      ...current,
+      [field]: field === "pin" ? value.replace(/\D/g, "").slice(0, 4) : value,
+    }));
+  }
+
+  return (
+    <section className="household-setup">
+      <header className="simple-header">
+        <button className="brand-button" type="button" aria-label="Inicio">
+          <LogoMark size={24} />
+        </button>
+      </header>
+
+      <div className="household-hero">
+        <span className="household-icon">
+          {step === 1 ? <House size={32} /> : step === 2 ? <KeyRound size={32} /> : step === 3 ? <UserPlus size={32} /> : <Users size={32} />}
+        </span>
+        <p className="eyebrow">Passo {step} de {totalSteps}</p>
+        <h1>{stepTitle}</h1>
+        <p>{stepDescription}</p>
+      </div>
+
+      <div className="household-card" key={`${mode}-${step}`}>
+        <div className="setup-progress" aria-label={`Passo ${step} de ${totalSteps}`}>
+          {Array.from({ length: totalSteps }, (_, index) => (
+            <span className={index + 1 <= step ? "active" : ""} key={index} />
+          ))}
+        </div>
+
+        {step === 1 ? (
+          <div className="setup-choice-grid">
+            <button
+              className={`setup-choice ${isCreateMode ? "selected" : ""}`}
+              type="button"
+              onClick={() => {
+                setMode("create");
+                setStep(1);
+              }}
+            >
+              <House size={24} />
+              <strong>Criar um lar</strong>
+              <span>Sou responsável pela casa e vou convidar moradores.</span>
+            </button>
+            <button
+              className={`setup-choice ${!isCreateMode ? "selected" : ""}`}
+              type="button"
+              onClick={() => {
+                setMode("join");
+                setStep(1);
+              }}
+            >
+              <KeyRound size={24} />
+              <strong>Entrar com código</strong>
+              <span>Já recebi o código da casa de alguém.</span>
+            </button>
+          </div>
+        ) : null}
+
+        {step === 2 ? (
+          <div className="household-form">
+            <div className="field">
+              <label htmlFor={isCreateMode ? "household-name" : "household-code"}>
+                {isCreateMode ? "Nome do lar" : "Código da casa"}
+              </label>
+              {isCreateMode ? (
+                <input
+                  id="household-name"
+                  name="household"
+                  placeholder="Ex: Casa da família Ramos"
+                  value={householdName}
+                  onChange={(event) => setHouseholdName(event.target.value)}
+                  required
+                />
+              ) : (
+                <input
+                  id="household-code"
+                  name="code"
+                  inputMode="text"
+                  placeholder="Ex: A7K2P9"
+                  value={code}
+                  onChange={(event) => setCode(normalizeHouseholdCode(event.target.value))}
+                  required
+                />
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {step === 3 ? (
+          <ResidentStarterFields
+            photo={photo}
+            resident={resident}
+            rolePlaceholder={isCreateMode ? "Ex: Admin da casa" : "Ex: Morador"}
+            onChange={updateResident}
+            onPhotoChange={onPhotoChange}
+          />
+        ) : null}
+
+        {step === 4 ? (
+          <div className="setup-invite-preview">
+            <span className="invite-preview-icon">
+              <Users size={26} />
+            </span>
+            <strong>Convite pronto no próximo passo</strong>
+            <p>
+              Ao finalizar, o J-tag gera o código do lar e libera o botão para copiar ou mandar convite para outros moradores.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="setup-nav">
+          {step > 1 ? (
+            <button className="secondary-action" type="button" onClick={goBack}>
+              <ChevronLeft size={18} />
+              Voltar
+            </button>
+          ) : null}
+          {step < totalSteps ? (
+            <button className="primary-action" type="button" onClick={goNext} disabled={!canGoNext}>
+              Próximo
+              <ChevronRight size={18} />
+            </button>
+          ) : (
+            <button className="primary-action" type="button" onClick={handleFinish} disabled={!canGoNext}>
+              <Check size={18} />
+              {isCreateMode ? "Finalizar e gerar convite" : "Entrar no lar"}
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ResidentStarterFields({
+  photo,
+  resident,
+  rolePlaceholder,
+  onChange,
+  onPhotoChange,
+}: {
+  photo: string;
+  resident: StarterResidentInput;
+  rolePlaceholder: string;
+  onChange: (field: keyof StarterResidentInput, value: string) => void;
+  onPhotoChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <div className="household-form">
+      <label className="photo-picker compact-photo-picker">
+        <span className="avatar-frame avatar-large avatar-empty">
+          {photo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img alt="" src={photo} />
+          ) : (
+            <Camera size={30} />
+          )}
+        </span>
+        <input accept="image/*" name="photo" type="file" onChange={onPhotoChange} />
+      </label>
+      <div className="field">
+        <label htmlFor="starter-name">Seu nome</label>
+        <input
+          id="starter-name"
+          name="name"
+          placeholder="Ex: Julia"
+          value={resident.name}
+          onChange={(event) => onChange("name", event.target.value)}
+          required
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="starter-role">Descrição</label>
+        <input
+          id="starter-role"
+          name="role"
+          placeholder={rolePlaceholder}
+          value={resident.role}
+          onChange={(event) => onChange("role", event.target.value)}
+        />
+      </div>
+      <div className="field">
+        <label htmlFor="starter-pin">PIN de 4 dígitos</label>
+        <input
+          id="starter-pin"
+          inputMode="numeric"
+          maxLength={4}
+          minLength={4}
+          name="pin"
+          pattern="[0-9]{4}"
+          placeholder="1234"
+          value={resident.pin}
+          onChange={(event) => onChange("pin", event.target.value)}
+          required
+        />
+      </div>
+    </div>
+  );
+}
+
+function HouseholdInviteModal({
+  activeResidentId,
+  canManageMembers,
+  household,
+  residents,
+  onClose,
+  onCopy,
+  onRemoveResident,
+  onShare,
+}: {
+  activeResidentId?: string;
+  canManageMembers: boolean;
+  household: Household;
+  residents: Resident[];
+  onClose: () => void;
+  onCopy: () => void;
+  onRemoveResident: (residentId: string) => void;
+  onShare: () => void;
+}) {
+  const inviteLink = buildInviteLink(household);
+
+  return (
+    <div className="modal-backdrop">
+      <section className="dark-modal invite-modal" role="dialog" aria-modal="true">
+        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <span className="emergency-icon neutral-icon">
+          <Users size={34} />
+        </span>
+        <div>
+          <p className="eyebrow">Código da casa</p>
+          <h2>{household.name}</h2>
+        </div>
+        <div className="household-code-card" aria-label={`Código ${household.code}`}>
+          {household.code.split("").map((letter, index) => (
+            <span key={`${letter}-${index}`}>{letter}</span>
+          ))}
+        </div>
+        {inviteLink ? (
+          <div className="invite-link-box">
+            <KeyRound size={16} />
+            <span>{inviteLink}</span>
+          </div>
+        ) : null}
+        <p className="invite-note">
+          Quem abrir esse link consegue entrar na família e criar um perfil. No banco real, esse convite vai poder expirar e ter permissão.
+        </p>
+        <div className="invite-actions">
+          <button className="secondary-action" type="button" onClick={onCopy}>
+            <KeyRound size={18} />
+            Copiar link
+          </button>
+          <button className="primary-action" type="button" onClick={onShare}>
+            <UserPlus size={18} />
+            Mandar convite
+          </button>
+        </div>
+        <div className="member-management">
+          <div className="member-management-title">
+            <strong>Membros da família</strong>
+            {canManageMembers ? <span>Você pode remover outros perfis.</span> : <span>Apenas o criador pode remover membros.</span>}
+          </div>
+          <div className="member-list">
+            {residents.map((resident) => {
+              const isOwner = household.ownerResidentId === resident.id;
+              const isSelf = activeResidentId === resident.id;
+
+              return (
+                <div className="member-row" key={resident.id}>
+                  <Avatar resident={resident} />
+                  <span>
+                    <strong>{resident.name}</strong>
+                    <small>{isOwner ? "Criador da família" : resident.role}</small>
+                  </span>
+                  {canManageMembers && !isSelf ? (
+                    <button
+                      aria-label={`Remover ${resident.name}`}
+                      type="button"
+                      onClick={() => onRemoveResident(resident.id)}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1587,7 +2488,7 @@ function PinModal({
           <p className="eyebrow">Entrar como</p>
           <h2>{resident.name}</h2>
         </div>
-        <div className="pin-dots" aria-label={`${pin.length} digitos informados`}>
+        <div className="pin-dots" aria-label={`${pin.length} dígitos informados`}>
           {[0, 1, 2, 3].map((item) => (
             <span className={`pin-dot ${pin.length > item ? "active" : ""}`} key={item} />
           ))}
@@ -1596,7 +2497,7 @@ function PinModal({
         {useNativeKeyboard ? (
           <input
             ref={nativeInputRef}
-            aria-label="PIN de 4 digitos"
+            aria-label="PIN de 4 dígitos"
             autoComplete="current-password"
             autoFocus
             className="native-pin-input"
@@ -1667,11 +2568,11 @@ function NewResidentModal({
           <input id="resident-name" name="name" placeholder="Ex: Julia" required />
         </div>
         <div className="field">
-          <label htmlFor="resident-role">Descricao</label>
+          <label htmlFor="resident-role">Descrição</label>
           <input id="resident-role" name="role" placeholder="Ex: Admin" />
         </div>
         <div className="field">
-          <label htmlFor="resident-pin">PIN de 4 digitos</label>
+          <label htmlFor="resident-pin">PIN de 4 dígitos</label>
           <input
             id="resident-pin"
             inputMode="numeric"
@@ -1714,7 +2615,7 @@ function ReminderModal({
         </div>
         <div className="field">
           <label htmlFor="reminder-text">Lembrete</label>
-          <input id="reminder-text" name="text" placeholder="Ex: Tomar remedio as 20h" required />
+          <input id="reminder-text" name="text" placeholder="Ex: Tomar remédio às 20h" required />
         </div>
         <div className="field">
           <span className="field-label">Icone</span>
@@ -1764,11 +2665,11 @@ function BirthdayModal({
         </span>
         <div>
           <p className="eyebrow">Novo item</p>
-          <h2>Aniversario</h2>
+          <h2>Aniversário</h2>
         </div>
         <div className="field">
           <label htmlFor="birthday-name">Nome</label>
-          <input id="birthday-name" name="name" placeholder="Ex: Mae" required />
+          <input id="birthday-name" name="name" placeholder="Ex: Mãe" required />
         </div>
         <div className="field">
           <label htmlFor="birthday-date">Data</label>
@@ -1779,7 +2680,7 @@ function BirthdayModal({
         </div>
         <button className="primary-action" type="submit">
           <Check size={18} />
-          Salvar aniversario
+          Salvar aniversário
         </button>
       </form>
     </div>
@@ -1830,11 +2731,11 @@ function EditResidentModal({
           <input id="edit-resident-name" name="name" defaultValue={resident.name} required />
         </div>
         <div className="field">
-          <label htmlFor="edit-resident-role">Descricao</label>
+          <label htmlFor="edit-resident-role">Descrição</label>
           <input id="edit-resident-role" name="role" defaultValue={resident.role} />
         </div>
         <div className="field">
-          <label htmlFor="edit-resident-pin">PIN de 4 digitos</label>
+          <label htmlFor="edit-resident-pin">PIN de 4 dígitos</label>
           <input
             id="edit-resident-pin"
             inputMode="numeric"
@@ -1986,7 +2887,7 @@ function CalendarModal({
             onClick={() => handleViewModeChange("calendar")}
           >
             <CalendarDays size={16} />
-            Calendario
+            Calendário
           </button>
           <button
             className={viewMode === "list" ? "active" : ""}
@@ -2010,12 +2911,12 @@ function CalendarModal({
                   <ChevronLeft size={18} />
                 </button>
                 <span>{monthLabel}</span>
-                <button type="button" onClick={() => moveMonth(1)} aria-label="Proximo mes">
+                <button type="button" onClick={() => moveMonth(1)} aria-label="Próximo mês">
                   <ChevronRight size={18} />
                 </button>
               </div>
               <p className="calendar-mode-note">
-                Arraste para trocar de mes. Toque no icone para ver detalhes.
+                Arraste para trocar de mês. Toque no ícone para ver detalhes.
               </p>
               <div className="calendar-weekdays" aria-hidden="true">
                 {["D", "S", "T", "Q", "Q", "S", "S"].map((day, index) => (
@@ -2042,7 +2943,7 @@ function CalendarModal({
                             type="button"
                             key={item.id}
                             onClick={() => setSelectedCalendarItem(item)}
-                            aria-label={`Abrir ${kind === "birthday" ? "aniversario" : "lembrete"}`}
+                            aria-label={`Abrir ${kind === "birthday" ? "aniversário" : "lembrete"}`}
                           >
                             {kind === "birthday" ? (
                               <Cake size={14} />
@@ -2082,7 +2983,7 @@ function CalendarModal({
                   </button>
                 ))
               ) : (
-                <p>Nenhum item neste mes.</p>
+                <p>Nenhum item neste mês.</p>
               )}
             </div>
           ) : null}
@@ -2112,7 +3013,7 @@ function CalendarModal({
                 )}
               </span>
               <div>
-                <p className="eyebrow">{kind === "birthday" ? "Aniversario" : "Lembrete"}</p>
+                <p className="eyebrow">{kind === "birthday" ? "Aniversário" : "Lembrete"}</p>
                 <h3>{"text" in selectedCalendarItem ? selectedCalendarItem.text : selectedCalendarItem.name}</h3>
                 <small>
                   {kind === "birthday"
@@ -2153,7 +3054,7 @@ function EmergencyModal({
           <HeartPulse size={34} />
         </span>
         <div>
-          <p className="eyebrow">Emergencia</p>
+          <p className="eyebrow">Emergência</p>
           <h2>Ajuda rapida</h2>
         </div>
         <div className="emergency-list">
@@ -2163,7 +3064,7 @@ function EmergencyModal({
           </a>
           <a className="emergency-link" href="tel:190">
             <Phone size={18} />
-            Policia 190
+            Polícia 190
           </a>
           <a className="emergency-link" href="tel:193">
             <Phone size={18} />
@@ -2211,7 +3112,7 @@ function EmergencyModal({
           >
             <div className="field">
               <label htmlFor="emergency-name">Nome</label>
-              <input id="emergency-name" name="name" placeholder="Ex: Mae" required />
+              <input id="emergency-name" name="name" placeholder="Ex: Mãe" required />
             </div>
             <div className="field">
               <label htmlFor="emergency-phone">Telefone</label>
