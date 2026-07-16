@@ -2949,7 +2949,15 @@ export default function HomePage() {
             onClose={() => setShowHouseholdInvite(false)}
             onCopy={copyHouseholdInvite}
             onRemoveResident={handleRemoveHouseholdResident}
-            onShare={shareHouseholdInvite}
+          onShare={shareHouseholdInvite}
+        />
+      ) : null}
+        {showNotifications ? (
+          <NotificationsModal
+            notifications={notifications}
+            onClose={() => setShowNotifications(false)}
+            onDismiss={handleDismissNotification}
+            onOpen={handleOpenNotification}
           />
         ) : null}
         {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
