@@ -1176,6 +1176,7 @@ export default function HomePage() {
   const [showHouseholdInvite, setShowHouseholdInvite] = useState(false);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState("");
+  const [welcomeHouseholdName, setWelcomeHouseholdName] = useState("");
   const [recentHouseholds, setRecentHouseholds] = useState<RecentHousehold[]>([]);
   const [accountHouseholds, setAccountHouseholds] = useState<RecentHousehold[]>([]);
   const [authUser, setAuthUser] = useState<User | null>(null);
@@ -1192,6 +1193,7 @@ export default function HomePage() {
   const pendingVoiceHandlerRef = useRef<((transcript: string) => void) | null>(null);
   const activeRecognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const speechFallbackTimerRef = useRef<number | null>(null);
+  const welcomeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -1199,14 +1201,16 @@ export default function HomePage() {
     const lastResidentId = window.localStorage.getItem(LAST_RESIDENT_KEY);
     const lastResident = storedState.residents.find((resident) => resident.id === lastResidentId);
     const inviteCode = normalizeHouseholdCode(new URLSearchParams(window.location.search).get("lar") ?? "");
+    const shouldStartFromInvite = Boolean(inviteCode);
 
     setRecentHouseholds(loadRecentHouseholds());
-    setAppState(storedState);
-    if (storedState.household && lastResident) {
-      setActiveResident(lastResident);
-    }
-    if (!storedState.household && inviteCode) {
+    setAppState(shouldStartFromInvite ? defaultState : storedState);
+    if (shouldStartFromInvite) {
       setPendingInviteCode(inviteCode);
+      setActiveResident(null);
+      setSelectedResident(null);
+    } else if (storedState.household && lastResident) {
+      setActiveResident(lastResident);
     }
 
     async function hydrateRemoteState() {
@@ -1236,7 +1240,22 @@ export default function HomePage() {
         return;
       }
 
-      const remoteLastResident = remoteState.residents.find((resident) => resident.id === lastResidentId);
+      if (inviteCode) {
+        setPendingInviteCode(inviteCode);
+        const isAlreadyMember =
+          Boolean(remoteState.household) &&
+          userHouseholds.some((household) => household.id === remoteState.household?.id);
+
+        if (!isAlreadyMember) {
+          setAppState(defaultState);
+          setActiveResident(null);
+          setSelectedResident(null);
+          return;
+        }
+      }
+
+      const remoteLastResident =
+        remoteState.residents.find((resident) => resident.id === lastResidentId) ?? remoteState.residents[0] ?? null;
       setAppState(remoteState);
       if (remoteState.household) {
         rememberHousehold(remoteState.household);
@@ -1272,6 +1291,9 @@ export default function HomePage() {
     return () => {
       isMounted = false;
       window.clearTimeout(timer);
+      if (welcomeTimerRef.current) {
+        window.clearTimeout(welcomeTimerRef.current);
+      }
       authSubscription.subscription?.unsubscribe();
     };
   }, []);
@@ -1316,11 +1338,45 @@ export default function HomePage() {
   async function refreshAccountHouseholds(userId = authUser?.id) {
     if (!userId) {
       setAccountHouseholds([]);
-      return;
+      return [] as RecentHousehold[];
     }
 
     const households = await loadAccountHouseholds(userId);
     setAccountHouseholds(households);
+    return households;
+  }
+
+  function getPreferredResident(remoteState: AppState) {
+    const lastResidentId = window.localStorage.getItem(LAST_RESIDENT_KEY);
+    return remoteState.residents.find((resident) => resident.id === lastResidentId) ?? remoteState.residents[0] ?? null;
+  }
+
+  function enterHouseholdWithWelcome(remoteState: AppState) {
+    if (!remoteState.household) {
+      return;
+    }
+
+    if (welcomeTimerRef.current) {
+      window.clearTimeout(welcomeTimerRef.current);
+    }
+
+    const preferredResident = getPreferredResident(remoteState);
+    rememberHousehold(remoteState.household);
+    setRecentHouseholds(loadRecentHouseholds());
+    setPendingInviteCode("");
+    setSelectedResident(null);
+    setWelcomeHouseholdName(remoteState.household.name);
+
+    welcomeTimerRef.current = window.setTimeout(() => {
+      runScreenTransition("enter", () => {
+        setAppState(remoteState);
+        setActiveResident(preferredResident);
+        if (preferredResident) {
+          saveLastResident(preferredResident.id);
+        }
+        setWelcomeHouseholdName("");
+      });
+    }, 1650);
   }
 
   async function handleAuthSubmit(mode: "sign-in" | "sign-up", email: string, password: string) {
@@ -1345,7 +1401,21 @@ export default function HomePage() {
 
     if (data.user) {
       setAuthUser(data.user);
-      await refreshAccountHouseholds(data.user.id);
+      const households = await refreshAccountHouseholds(data.user.id);
+      const inviteState = pendingInviteCode ? await loadRemoteStateByCode(pendingInviteCode) : null;
+      const inviteMembership = inviteState?.household
+        ? households.find((household) => household.id === inviteState.household?.id)
+        : null;
+      const autoHousehold = inviteMembership ?? (!pendingInviteCode && households.length === 1 ? households[0] : null);
+      const remoteState = inviteState?.household && inviteMembership
+        ? inviteState
+        : autoHousehold
+          ? await loadRemoteStateById(autoHousehold.id)
+          : null;
+
+      if (remoteState?.household) {
+        enterHouseholdWithWelcome(remoteState);
+      }
     }
 
     if (mode === "sign-up" && !data.session) {
@@ -1469,11 +1539,7 @@ export default function HomePage() {
     }
 
     rememberHousehold(remoteState.household);
-    setRecentHouseholds(loadRecentHouseholds());
-    runScreenTransition("enter", () => {
-      setAppState(remoteState);
-      setPendingInviteCode("");
-    });
+    enterHouseholdWithWelcome(remoteState);
   }
 
   async function copyHouseholdInvite() {
@@ -2172,6 +2238,14 @@ export default function HomePage() {
     );
   }
 
+  if (welcomeHouseholdName) {
+    return (
+      <main className="screen-shell">
+        <WelcomeHouseholdScreen householdName={welcomeHouseholdName} />
+      </main>
+    );
+  }
+
   if (!appState.household) {
     return (
       <main className="screen-shell">
@@ -2500,7 +2574,7 @@ function AuthGate({
   onShowReleaseNotes: () => void;
   onSubmit: (mode: "sign-in" | "sign-up", email: string, password: string) => void;
 }) {
-  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
+  const [mode, setMode] = useState<"sign-in" | "sign-up">(hasInvite ? "sign-up" : "sign-in");
   const [email, setEmail] = useState("");
   const [savedAccessStatus, setSavedAccessStatus] = useState("");
   const passwordRef = useRef<HTMLInputElement>(null);
@@ -2569,11 +2643,17 @@ function AuthGate({
         <span className="household-icon">
           <Users size={32} />
         </span>
-        <p className="eyebrow">{hasInvite ? "Convite recebido" : "Conta J-tag"}</p>
-        <h1>{isSignUp ? "Criar sua conta" : "Entrar na sua conta"}</h1>
+        <p className="eyebrow">{hasInvite ? "Convite de família" : "Conta J-tag"}</p>
+        <h1>
+          {hasInvite
+            ? "Ingressar na família"
+            : isSignUp
+              ? "Criar sua conta"
+              : "Entrar na sua conta"}
+        </h1>
         <p>
           {hasInvite
-            ? "Entre com sua própria conta para acessar a família do convite."
+            ? "Use sua própria conta. Depois disso, o convite continua sozinho e você cria seu perfil."
             : "Uma conta pode participar de uma ou mais famílias e ver os perfis delas."}
         </p>
       </div>
@@ -2622,9 +2702,31 @@ function AuthGate({
         {!isSignUp && savedAccessStatus ? <p className="saved-access-hint">{savedAccessStatus}</p> : null}
         <button className="primary-action" type="submit">
           <Check size={18} />
-          {isSignUp ? "Criar conta" : "Entrar"}
+          {hasInvite ? (isSignUp ? "Criar conta e continuar" : "Entrar e continuar") : isSignUp ? "Criar conta" : "Entrar"}
         </button>
       </form>
+    </section>
+  );
+}
+
+function WelcomeHouseholdScreen({ householdName }: { householdName: string }) {
+  return (
+    <section className="welcome-household-screen" aria-label={`Bem-vindo à casa ${householdName}`}>
+      <div className="welcome-household-orbit" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="welcome-household-card">
+        <div className="welcome-household-logo">
+          <LogoMark size={34} />
+        </div>
+        <p className="eyebrow">Acesso liberado</p>
+        <h1>Bem-vindo à casa {householdName}</h1>
+        <div className="welcome-household-loader" aria-hidden="true">
+          <span />
+        </div>
+      </div>
     </section>
   );
 }
