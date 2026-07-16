@@ -3113,11 +3113,40 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   }
 
   .dashboard-today-card {
+    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) auto;
     min-height: 92px;
+    padding: 16px;
   }
 
   .weather-widget {
-    min-width: 132px;
+    gap: 7px;
+    grid-template-columns: auto minmax(58px, 1fr);
+    min-width: 116px;
+  }
+
+  .weather-orbit {
+    height: 44px;
+    width: 44px;
+  }
+
+  .weather-orbit svg {
+    height: 25px;
+    width: 25px;
+  }
+
+  .weather-copy {
+    gap: 2px;
+  }
+
+  .weather-copy span,
+  .weather-copy em {
+    font-size: 0.64rem;
+  }
+
+  .weather-copy strong {
+    font-size: 0.82rem;
+    max-width: 70px;
   }
 
   .dashboard-grid {
@@ -3150,20 +3179,46 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 
 @media (max-width: 440px) {
   .dashboard-today-card {
-    grid-template-columns: 1fr;
+    min-height: 104px;
   }
 
   .weather-widget {
-    justify-self: start;
-    min-width: 0;
+    min-width: 108px;
+  }
+
+  .dashboard-today-copy {
+    gap: 7px;
+  }
+
+  .dashboard-today-copy span {
+    font-size: 0.72rem;
+  }
+
+  .dashboard-today-copy strong {
+    font-size: clamp(1.55rem, 8vw, 1.9rem);
   }
 
   .weather-copy {
-    text-align: left;
+    text-align: right;
   }
 
   .weather-copy span,
   .weather-copy em {
-    justify-content: start;
+    justify-content: end;
+  }
+
+  .weather-copy strong {
+    max-width: 64px;
+  }
+
+  .weather-drops,
+  .weather-drops::before,
+  .weather-drops::after {
+    bottom: 5px;
+    height: 7px;
+  }
+
+  .weather-drops {
+    left: 16px;
   }
 }
