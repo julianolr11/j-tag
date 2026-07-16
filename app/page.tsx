@@ -982,6 +982,22 @@ function daysBetween(from: Date, to: Date) {
   return Math.round((to.getTime() - from.getTime()) / 86_400_000);
 }
 
+function formatDistanceLabel(distance: number) {
+  if (distance === 0) {
+    return "Hoje";
+  }
+
+  if (distance === 1) {
+    return "Amanhã";
+  }
+
+  if (distance < 0) {
+    return `${Math.abs(distance)}d atrás`;
+  }
+
+  return `Em ${distance}d`;
+}
+
 function getReminderPreview(reminders: Reminder[]) {
   const today = startOfToday();
   const dated = reminders
@@ -1446,6 +1462,36 @@ export default function HomePage() {
   }, [activeResident, appState.reminders]);
   const reminderPreview = useMemo(() => getReminderPreview(activeReminders), [activeReminders]);
   const birthdayPreview = useMemo(() => getBirthdayPreview(appState.birthdays), [appState.birthdays]);
+  const dashboardReminders = useMemo(() => {
+    const today = startOfToday();
+    const dated = activeReminders
+      .map((reminder) => {
+        const parsedDate = parseReminderDate(reminder.date);
+        return parsedDate
+          ? {
+              ...reminder,
+              distance: daysBetween(today, parsedDate),
+            }
+          : null;
+      })
+      .filter((reminder): reminder is Reminder & { distance: number } => Boolean(reminder));
+
+    return {
+      today: dated.filter((reminder) => reminder.distance === 0),
+      next: dated.filter((reminder) => reminder.distance >= 0).sort((a, b) => a.distance - b.distance)[0],
+      overdue: dated.filter((reminder) => reminder.distance < 0).length,
+    };
+  }, [activeReminders]);
+  const dashboardBirthdays = useMemo(() => {
+    const upcoming = birthdayPreview
+      .filter((birthday) => birthday.nextDistance >= 0)
+      .sort((a, b) => a.nextDistance - b.nextDistance);
+
+    return {
+      today: upcoming.filter((birthday) => birthday.nextDistance === 0),
+      next: upcoming[0],
+    };
+  }, [birthdayPreview]);
   const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
   const hasLocalHouseholdAccess = Boolean(appState.household);
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
@@ -2471,14 +2517,68 @@ export default function HomePage() {
               <span>{voiceMessage}</span>
             </div>
           ) : null}
-          <div className="inside-hero">
-            <Avatar resident={activeResident} variant="large" />
-            <div>
-              <p className="eyebrow">Perfil ativo</p>
-              <h1>{activeResident.name}</h1>
-              <span>{activeResident.role}</span>
+          <div className="dashboard-hero">
+            <div className="inside-hero">
+              <Avatar resident={activeResident} variant="large" />
+              <div>
+                <p className="eyebrow">Dashboard do lar</p>
+                <h1>{appState.household.name}</h1>
+                <span>
+                  {activeResident.name} · {activeResident.role}
+                </span>
+              </div>
+            </div>
+            <div className="dashboard-today-card">
+              <span>{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span>
+              <strong>
+                {dashboardReminders.today.length + dashboardBirthdays.today.length
+                  ? `${dashboardReminders.today.length + dashboardBirthdays.today.length} item hoje`
+                  : "Dia tranquilo"}
+              </strong>
             </div>
           </div>
+
+          <div className="dashboard-grid">
+            <button className="dashboard-card dashboard-card-primary" type="button" onClick={() => setProfileModal("reminderCalendar")}>
+              <span className="dashboard-card-icon">
+                <CalendarCheck size={20} />
+              </span>
+              <small>Lembretes</small>
+              <strong>{dashboardReminders.next ? dashboardReminders.next.text : "Nada agendado"}</strong>
+              <em>{dashboardReminders.next ? formatDistanceLabel(dashboardReminders.next.distance) : "Livre"}</em>
+            </button>
+            <button className="dashboard-card" type="button" onClick={() => setProfileModal("birthdayCalendar")}>
+              <span className="dashboard-card-icon birthday-icon">
+                <Cake size={20} />
+              </span>
+              <small>Aniversários</small>
+              <strong>{dashboardBirthdays.next ? dashboardBirthdays.next.name : "Sem próximos"}</strong>
+              <em>{dashboardBirthdays.next ? formatDistanceLabel(dashboardBirthdays.next.nextDistance) : "Adicionar data"}</em>
+            </button>
+            <button className="dashboard-card" type="button" onClick={() => setShowHouseholdInvite(true)}>
+              <span className="dashboard-card-icon">
+                <Users size={20} />
+              </span>
+              <small>Moradores</small>
+              <strong>{appState.residents.length}</strong>
+              <em>{appState.residents.length === 1 ? "perfil na casa" : "perfis na casa"}</em>
+            </button>
+            <button className="dashboard-card" type="button" onClick={() => setShowEmergency(true)}>
+              <span className="dashboard-card-icon emergency-icon-mini">
+                <HeartPulse size={20} />
+              </span>
+              <small>Emergência</small>
+              <strong>{appState.emergencyContacts.length + 3}</strong>
+              <em>contatos prontos</em>
+            </button>
+          </div>
+
+          {dashboardReminders.overdue ? (
+            <div className="dashboard-alert">
+              <Bell size={18} />
+              <span>{dashboardReminders.overdue} lembrete{dashboardReminders.overdue > 1 ? "s" : ""} atrasado{dashboardReminders.overdue > 1 ? "s" : ""}</span>
+            </div>
+          ) : null}
 
           <div className="inside-grid">
             <InfoPanel
@@ -2723,8 +2823,6 @@ function AuthGate({
 }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">(hasInvite ? "sign-up" : "sign-in");
   const [email, setEmail] = useState("");
-  const [savedAccessStatus, setSavedAccessStatus] = useState("");
-  const passwordRef = useRef<HTMLInputElement>(null);
   const isSignUp = mode === "sign-up";
 
   useEffect(() => {
@@ -2743,39 +2841,6 @@ function AuthGate({
 
     window.localStorage.setItem(LAST_AUTH_EMAIL_KEY, emailValue);
     onSubmit(mode, emailValue, password);
-  }
-
-  async function handleSavedAccess() {
-    setSavedAccessStatus("Procurando senha salva no aparelho...");
-
-    try {
-      const credentialStore = navigator.credentials as
-        | (CredentialsContainer & {
-            get(options: { password?: boolean; mediation?: CredentialMediationRequirement }): Promise<Credential | null>;
-          })
-        | undefined;
-
-      const credential = await credentialStore?.get({
-        password: true,
-        mediation: "optional",
-      });
-      const passwordCredential = credential as (Credential & { id?: string; password?: string }) | null;
-
-      if (passwordCredential?.id && passwordCredential.password) {
-        setEmail(passwordCredential.id);
-        window.localStorage.setItem(LAST_AUTH_EMAIL_KEY, passwordCredential.id);
-        if (passwordRef.current) {
-          passwordRef.current.value = passwordCredential.password;
-        }
-        onSubmit("sign-in", passwordCredential.id, passwordCredential.password);
-        return;
-      }
-    } catch {
-      // Some browsers only expose saved passwords through keyboard/autofill UI.
-    }
-
-    passwordRef.current?.focus();
-    setSavedAccessStatus("Toque na senha sugerida pelo teclado e confirme com Face ID ou digital.");
   }
 
   return (
@@ -2814,12 +2879,6 @@ function AuthGate({
             Criar conta
           </button>
         </div>
-        {!isSignUp ? (
-          <button className="saved-access-button" type="button" onClick={() => void handleSavedAccess()}>
-            <LockKeyhole size={18} />
-            Entrar com Face ID/digital
-          </button>
-        ) : null}
         <div className="field">
           <label htmlFor="auth-email">E-mail</label>
           <input
@@ -2841,12 +2900,10 @@ function AuthGate({
             autoComplete={isSignUp ? "new-password" : "current-password"}
             minLength={6}
             placeholder="No mínimo 6 caracteres"
-            ref={passwordRef}
             type="password"
             required
           />
         </div>
-        {!isSignUp && savedAccessStatus ? <p className="saved-access-hint">{savedAccessStatus}</p> : null}
         <button className="primary-action" type="submit">
           <Check size={18} />
           {hasInvite ? (isSignUp ? "Criar conta e continuar" : "Entrar e continuar") : isSignUp ? "Criar conta" : "Entrar"}

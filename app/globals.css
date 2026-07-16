@@ -181,6 +181,8 @@ a {
 .theme-blue-light .switch-profile-button,
 .theme-blue-light .stream-profile,
 .theme-blue-light .inside-panel,
+.theme-blue-light .dashboard-card,
+.theme-blue-light .dashboard-today-card,
 .theme-blue-light .household-card {
   background: rgba(255, 255, 255, 0.52);
   border-color: rgba(25, 92, 145, 0.22);
@@ -197,6 +199,8 @@ a {
 .theme-blue-light .row-label,
 .theme-blue-light .stream-profile strong,
 .theme-blue-light .inside-panel h2,
+.theme-blue-light .dashboard-card strong,
+.theme-blue-light .dashboard-today-card strong,
 .theme-blue-light .household-pill span,
 .theme-blue-light .household-pill strong {
   color: #082033;
@@ -824,37 +828,6 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 
 .auth-card .view-toggle {
   margin-bottom: 2px;
-}
-
-.saved-access-button {
-  align-items: center;
-  backdrop-filter: blur(18px) saturate(160%);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06)),
-    rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
-  color: #fff;
-  display: inline-flex;
-  gap: 10px;
-  justify-content: center;
-  min-height: 50px;
-  padding: 0 16px;
-  width: 100%;
-}
-
-.saved-access-button:hover,
-.saved-access-button:focus-visible {
-  border-color: rgba(255, 255, 255, 0.32);
-  box-shadow: 0 18px 52px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.18);
-}
-
-.saved-access-hint {
-  color: rgba(255, 255, 255, 0.66);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
-  font-size: 0.86rem;
-  line-height: 1.35;
-  margin: -4px 0 0;
 }
 
 .welcome-household-screen {
@@ -1799,6 +1772,14 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   position: relative;
 }
 
+.dashboard-hero {
+  align-items: end;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.34fr);
+  margin-top: 1vh;
+}
+
 .inside-hero .avatar-large {
   font-size: 2rem;
   height: 76px;
@@ -1813,6 +1794,133 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 .inside-panel p {
   color: var(--muted);
   font-family: "Trebuchet MS", Verdana, sans-serif;
+}
+
+.dashboard-today-card {
+  backdrop-filter: blur(18px) saturate(150%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--red) 28%, transparent), rgba(255, 255, 255, 0.07)),
+    rgba(255, 255, 255, 0.075);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, rgba(255, 255, 255, 0.16));
+  border-radius: 8px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 22px 70px rgba(0, 0, 0, 0.22);
+  display: grid;
+  gap: 8px;
+  min-height: 112px;
+  padding: 18px;
+}
+
+.dashboard-today-card span,
+.dashboard-card small,
+.dashboard-card em,
+.dashboard-alert {
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+}
+
+.dashboard-today-card span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.dashboard-today-card strong {
+  color: #fff;
+  font-size: clamp(1.5rem, 4vw, 2.15rem);
+  line-height: 0.98;
+}
+
+.dashboard-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.dashboard-card {
+  align-content: start;
+  backdrop-filter: blur(16px) saturate(145%);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  color: #fff;
+  display: grid;
+  gap: 8px;
+  min-height: 154px;
+  min-width: 0;
+  padding: 16px;
+  text-align: left;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.dashboard-card:hover,
+.dashboard-card:focus-visible {
+  background: rgba(255, 255, 255, 0.095);
+  border-color: rgba(255, 255, 255, 0.3);
+  outline: 0;
+  transform: translateY(-2px);
+}
+
+.dashboard-card-primary {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--red) 22%, transparent), rgba(255, 255, 255, 0.07)),
+    rgba(255, 255, 255, 0.075);
+}
+
+.dashboard-card-icon {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: color-mix(in srgb, var(--red) 82%, #fff);
+  display: inline-flex;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.dashboard-card-icon.birthday-icon {
+  color: var(--yellow);
+}
+
+.dashboard-card-icon.emergency-icon-mini {
+  color: #ffb2b7;
+}
+
+.dashboard-card small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.dashboard-card strong {
+  display: block;
+  font-size: clamp(1.12rem, 2.6vw, 1.55rem);
+  line-height: 1.05;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-card em {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-style: normal;
+}
+
+.dashboard-alert {
+  align-items: center;
+  backdrop-filter: blur(14px);
+  background: rgba(242, 153, 74, 0.13);
+  border: 1px solid rgba(242, 153, 74, 0.28);
+  border-radius: 8px;
+  color: #ffd2a4;
+  display: inline-flex;
+  gap: 9px;
+  min-height: 44px;
+  padding: 0 14px;
+  width: fit-content;
 }
 
 .inside-grid {
@@ -2755,6 +2863,10 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   .theme-choice-grid {
     grid-template-columns: 1fr;
   }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -2847,6 +2959,24 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
     align-items: center;
     flex-direction: row;
     gap: 12px;
+  }
+
+  .dashboard-hero {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-today-card {
+    min-height: 92px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-card {
+    min-height: 136px;
+    padding: 14px;
   }
 
   .inside-hero .avatar-large {
