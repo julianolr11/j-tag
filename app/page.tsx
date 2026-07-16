@@ -1327,7 +1327,7 @@ export default function HomePage() {
       setActiveResident(null);
       setSelectedResident(null);
     } else if (storedState.household && lastResident) {
-      setActiveResident(lastResident);
+      setActiveResident(null);
     }
 
     async function hydrateRemoteState() {
@@ -1371,21 +1371,14 @@ export default function HomePage() {
         }
       }
 
-      const remoteLastResident =
-        remoteState.residents.find((resident) => resident.id === lastResidentId) ?? remoteState.residents[0] ?? null;
       setAppState(remoteState);
       if (remoteState.household) {
         rememberHousehold(remoteState.household);
         setRecentHouseholds(loadRecentHouseholds());
       }
-      if (remoteLastResident) {
-        setActiveResident(remoteLastResident);
-      }
+      setActiveResident(null);
       if (inviteCode) {
         setPendingInviteCode(inviteCode);
-      }
-      if (user && remoteState.household) {
-        enterHouseholdWithWelcome(remoteState);
       }
     }
 
@@ -1454,6 +1447,7 @@ export default function HomePage() {
   const reminderPreview = useMemo(() => getReminderPreview(activeReminders), [activeReminders]);
   const birthdayPreview = useMemo(() => getBirthdayPreview(appState.birthdays), [appState.birthdays]);
   const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
+  const hasLocalHouseholdAccess = Boolean(appState.household);
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
 
@@ -2368,7 +2362,7 @@ export default function HomePage() {
     );
   }
 
-  if (!authUser) {
+  if (!authUser && !hasLocalHouseholdAccess) {
     return (
       <main className={screenShellClassName}>
         {showSplash ? (
