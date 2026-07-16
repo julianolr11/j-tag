@@ -1663,6 +1663,11 @@ export default function HomePage() {
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
 
+  function openOverdueReminders() {
+    saveCalendarView("reminder", "list");
+    setProfileModal("reminderCalendar");
+  }
+
   async function refreshAccountHouseholds(userId = authUser?.id) {
     if (!userId) {
       setAccountHouseholds([]);
@@ -2743,10 +2748,10 @@ export default function HomePage() {
           </div>
 
           {dashboardReminders.overdue ? (
-            <div className="dashboard-alert">
+            <button className="dashboard-alert" type="button" onClick={openOverdueReminders}>
               <Bell size={18} />
               <span>{dashboardReminders.overdue} lembrete{dashboardReminders.overdue > 1 ? "s" : ""} atrasado{dashboardReminders.overdue > 1 ? "s" : ""}</span>
-            </div>
+            </button>
           ) : null}
 
           <div className="inside-grid">
@@ -4084,6 +4089,7 @@ function CalendarModal({
   const today = startOfToday();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(today));
   const [selectedCalendarItem, setSelectedCalendarItem] = useState<CalendarItem | null>(null);
+  const [monthMotionDirection, setMonthMotionDirection] = useState<"next" | "prev">("next");
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const { backdropClassName, requestClose } = useModalClose(onClose);
   const calendarDays = getCalendarDays(currentMonth);
@@ -4119,6 +4125,18 @@ function CalendarModal({
         item.parsedDate.getMonth() === currentMonth.getMonth(),
     )
     .sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime());
+  const overdueReminderItems =
+    kind === "reminder"
+      ? calendarItems
+          .filter((item) => daysBetween(today, item.parsedDate) < 0)
+          .sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime())
+      : [];
+  const agendaItems = kind === "reminder"
+    ? [
+        ...overdueReminderItems,
+        ...monthItems.filter((item) => !overdueReminderItems.some((overdueItem) => overdueItem.id === item.id)),
+      ]
+    : monthItems;
 
   function getItemsForDay(day: Date) {
     return calendarItems.filter((item) => sameCalendarDay(item.parsedDate, day));
@@ -4132,6 +4150,7 @@ function CalendarModal({
 
   function moveMonth(amount: number) {
     setSelectedCalendarItem(null);
+    setMonthMotionDirection(amount > 0 ? "next" : "prev");
     setCurrentMonth((month) => addMonths(month, amount));
   }
 
@@ -4158,6 +4177,18 @@ function CalendarModal({
     onDelete(selectedCalendarItem);
     setSelectedCalendarItem(null);
   }
+
+  const monthNavigation = (
+    <div className="calendar-month-nav">
+      <button type="button" onClick={() => moveMonth(-1)} aria-label="Mes anterior">
+        <ChevronLeft size={18} />
+      </button>
+      <span>{monthLabel}</span>
+      <button type="button" onClick={() => moveMonth(1)} aria-label="Próximo mês">
+        <ChevronRight size={18} />
+      </button>
+    </div>
+  );
 
   return (
     <div className={backdropClassName}>
@@ -4197,19 +4228,12 @@ function CalendarModal({
         <div className={`calendar-view-content calendar-view-${viewMode}`} key={viewMode}>
           {viewMode === "calendar" ? (
             <div
-              className="calendar-board"
+              className={`calendar-board calendar-board-${monthMotionDirection}`}
+              key={`${kind}-${currentMonth.toISOString()}`}
               onTouchStart={(event) => setTouchStartX(event.touches[0]?.clientX ?? null)}
               onTouchEnd={(event) => handleTouchEnd(event.changedTouches[0]?.clientX ?? 0)}
             >
-              <div className="calendar-month-nav">
-                <button type="button" onClick={() => moveMonth(-1)} aria-label="Mes anterior">
-                  <ChevronLeft size={18} />
-                </button>
-                <span>{monthLabel}</span>
-                <button type="button" onClick={() => moveMonth(1)} aria-label="Próximo mês">
-                  <ChevronRight size={18} />
-                </button>
-              </div>
+              {monthNavigation}
               <p className="calendar-mode-note">
                 Arraste para trocar de mês. Toque no ícone para ver detalhes.
               </p>
@@ -4257,29 +4281,44 @@ function CalendarModal({
           ) : null}
 
           {viewMode === "list" ? (
+            <div
+              className={`calendar-list-board calendar-board-${monthMotionDirection}`}
+              key={`${kind}-list-${currentMonth.toISOString()}`}
+              onTouchStart={(event) => setTouchStartX(event.touches[0]?.clientX ?? null)}
+              onTouchEnd={(event) => handleTouchEnd(event.changedTouches[0]?.clientX ?? 0)}
+            >
+              {monthNavigation}
+              <p className="calendar-mode-note">
+                Arraste para trocar de mês. {kind === "reminder" ? "Atrasados ficam no topo." : "Veja os aniversários do mês."}
+              </p>
             <div className="calendar-agenda calendar-agenda-list-mode">
-              {monthItems.length ? (
-                monthItems.map((item) => (
-                  <button
-                    className="calendar-agenda-row"
-                    key={item.id}
-                    type="button"
-                    onClick={() => setSelectedCalendarItem(item)}
-                  >
-                    <span className="inside-row-main">
-                      {kind === "birthday" ? (
-                        <Cake size={16} />
-                      ) : (
-                        <ReminderIconBadge icon={(item as Reminder).icon} />
-                      )}
-                      <span className="row-label">{"text" in item ? item.text : item.name}</span>
-                    </span>
-                    <small>{kind === "birthday" ? formatBirthdayValue(item.date) : formatDateLabel(item.date)}</small>
-                  </button>
-                ))
+              {agendaItems.length ? (
+                agendaItems.map((item) => {
+                  const isOverdueReminder = kind === "reminder" && daysBetween(today, item.parsedDate) < 0;
+
+                  return (
+                    <button
+                      className={`calendar-agenda-row ${isOverdueReminder ? "calendar-agenda-overdue" : ""}`}
+                      key={item.id}
+                      type="button"
+                      onClick={() => setSelectedCalendarItem(item)}
+                    >
+                      <span className="inside-row-main">
+                        {kind === "birthday" ? (
+                          <Cake size={16} />
+                        ) : (
+                          <ReminderIconBadge icon={(item as Reminder).icon} />
+                        )}
+                        <span className="row-label">{"text" in item ? item.text : item.name}</span>
+                      </span>
+                      <small>{isOverdueReminder ? "Atrasado" : kind === "birthday" ? formatBirthdayValue(item.date) : formatDateLabel(item.date)}</small>
+                    </button>
+                  );
+                })
               ) : (
-                <p>Nenhum item neste mês.</p>
+                <p>{kind === "reminder" ? "Nenhum lembrete cadastrado." : "Nenhum item neste mês."}</p>
               )}
+            </div>
             </div>
           ) : null}
         </div>
