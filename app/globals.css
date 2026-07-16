@@ -1590,15 +1590,39 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   scrollbar-width: thin;
 }
 
+.notification-title-row {
+  align-items: end;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.notification-title-row h2 {
+  margin: 0;
+}
+
+.notification-clear-all {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.76);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 900;
+  min-height: 34px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
 .notification-row {
   align-items: stretch;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: minmax(0, 1fr) 44px 44px;
 }
 
 .notification-content,
-.notification-dismiss {
+.notification-action {
   backdrop-filter: blur(16px) saturate(150%);
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -1655,7 +1679,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   white-space: nowrap;
 }
 
-.notification-dismiss {
+.notification-action {
   align-items: center;
   color: rgba(255, 255, 255, 0.62);
   display: inline-flex;
@@ -1663,10 +1687,16 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   min-height: 66px;
 }
 
+.notification-seen {
+  color: #9ff0bd;
+}
+
 .notification-content:hover,
 .notification-content:focus-visible,
-.notification-dismiss:hover,
-.notification-dismiss:focus-visible {
+.notification-action:hover,
+.notification-action:focus-visible,
+.notification-clear-all:hover,
+.notification-clear-all:focus-visible {
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.28);
   outline: 0;
@@ -1675,6 +1705,11 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 .notification-dismiss:hover,
 .notification-dismiss:focus-visible {
   color: #ffb2b7;
+}
+
+.notification-seen:hover,
+.notification-seen:focus-visible {
+  color: #c7ffd8;
 }
 
 .notification-empty {
@@ -3554,6 +3589,19 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 
   .calendar-timeline-date span {
     font-size: 0.68rem;
+  }
+
+  .notification-row {
+    grid-template-columns: minmax(0, 1fr) 40px 40px;
+  }
+
+  .notification-title-row {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .notification-action {
+    min-height: 62px;
   }
 }
 

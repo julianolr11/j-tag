@@ -1746,6 +1746,14 @@ export default function HomePage() {
     });
   }
 
+  function handleDismissAllNotifications() {
+    setDismissedNotifications((current) => {
+      const next = Array.from(new Set([...current, ...notifications.map((notification) => notification.id)]));
+      saveDismissedNotifications(next);
+      return next;
+    });
+  }
+
   async function refreshAccountHouseholds(userId = authUser?.id) {
     if (!userId) {
       setAccountHouseholds([]);
@@ -2956,6 +2964,7 @@ export default function HomePage() {
           <NotificationsModal
             notifications={notifications}
             onClose={() => setShowNotifications(false)}
+            onDismissAll={handleDismissAllNotifications}
             onDismiss={handleDismissNotification}
             onOpen={handleOpenNotification}
           />
@@ -3068,11 +3077,12 @@ export default function HomePage() {
       ) : null}
       {showNotifications ? (
         <NotificationsModal
-          notifications={notifications}
-          onClose={() => setShowNotifications(false)}
-          onDismiss={handleDismissNotification}
-          onOpen={handleOpenNotification}
-        />
+            notifications={notifications}
+            onClose={() => setShowNotifications(false)}
+            onDismissAll={handleDismissAllNotifications}
+            onDismiss={handleDismissNotification}
+            onOpen={handleOpenNotification}
+          />
       ) : null}
       {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
     </main>
@@ -3114,11 +3124,13 @@ function WeatherWidget({ weather }: { weather: TodayWeather }) {
 function NotificationsModal({
   notifications,
   onClose,
+  onDismissAll,
   onDismiss,
   onOpen,
 }: {
   notifications: AppNotification[];
   onClose: () => void;
+  onDismissAll: () => void;
   onDismiss: (notificationId: string) => void;
   onOpen: (notification: AppNotification) => void;
 }) {
@@ -3134,7 +3146,14 @@ function NotificationsModal({
           <Bell size={30} />
         </span>
         <p className="eyebrow">Central</p>
-        <h2>Notificações</h2>
+        <div className="notification-title-row">
+          <h2>Notificações</h2>
+          {notifications.length ? (
+            <button className="notification-clear-all" type="button" onClick={onDismissAll}>
+              Limpar tudo
+            </button>
+          ) : null}
+        </div>
         <div className="notification-list">
           {notifications.length ? (
             notifications.map((notification) => (
@@ -3149,7 +3168,15 @@ function NotificationsModal({
                   </span>
                 </button>
                 <button
-                  className="notification-dismiss"
+                  className="notification-action notification-seen"
+                  type="button"
+                  onClick={() => onDismiss(notification.id)}
+                  aria-label="Marcar como vista"
+                >
+                  <Check size={16} />
+                </button>
+                <button
+                  className="notification-action notification-dismiss"
                   type="button"
                   onClick={() => onDismiss(notification.id)}
                   aria-label="Excluir notificação"
