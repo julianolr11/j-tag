@@ -1656,6 +1656,10 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   color: var(--yellow);
 }
 
+.notification-kind-location {
+  color: #9ff0bd;
+}
+
 .notification-content strong,
 .notification-content small,
 .notification-empty strong,
@@ -1728,6 +1732,88 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 .notification-empty strong {
   color: #fff;
   font-size: 1.1rem;
+}
+
+.location-modal {
+  max-width: 440px;
+}
+
+.location-modal-icon {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(47, 128, 237, 0.28), rgba(53, 208, 127, 0.2)),
+    rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(159, 240, 189, 0.32);
+  border-radius: 8px;
+  color: #9ff0bd;
+  display: inline-flex;
+  height: 78px;
+  justify-content: center;
+  justify-self: center;
+  width: 78px;
+}
+
+.location-modal-copy {
+  color: var(--muted);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  line-height: 1.45;
+  margin: 0;
+  text-align: center;
+}
+
+.location-duration-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.location-duration-grid button {
+  backdrop-filter: blur(16px) saturate(150%);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #fff;
+  display: grid;
+  gap: 4px;
+  min-height: 92px;
+  padding: 16px;
+}
+
+.location-duration-grid button:hover,
+.location-duration-grid button:focus-visible {
+  background: rgba(159, 240, 189, 0.12);
+  border-color: rgba(159, 240, 189, 0.36);
+  outline: 0;
+}
+
+.location-duration-grid strong {
+  font-size: 1.55rem;
+}
+
+.location-duration-grid span,
+.location-map-preview span {
+  color: var(--muted);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-weight: 900;
+}
+
+.location-map-preview {
+  align-items: center;
+  background:
+    radial-gradient(circle at 24% 20%, rgba(159, 240, 189, 0.18), transparent 34%),
+    linear-gradient(135deg, rgba(47, 128, 237, 0.18), rgba(255, 255, 255, 0.06));
+  border: 1px solid rgba(159, 240, 189, 0.22);
+  border-radius: 8px;
+  color: #9ff0bd;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  min-height: 150px;
+  padding: 18px;
+}
+
+.location-map-link {
+  text-decoration: none;
 }
 
 .emergency-link {

@@ -22,7 +22,9 @@ import {
   KeyRound,
   Lightbulb,
   LockKeyhole,
+  MapPin,
   Mic,
+  Navigation,
   Pencil,
   Phone,
   Pill,
@@ -71,6 +73,16 @@ type EmergencyContact = {
   phone: string;
 };
 
+type LocationShare = {
+  id: string;
+  residentId: string;
+  latitude: number;
+  longitude: number;
+  accuracy?: number;
+  createdAt: string;
+  expiresAt: string;
+};
+
 type Household = {
   id: string;
   name: string;
@@ -86,6 +98,7 @@ type AppState = {
   reminders: Reminder[];
   birthdays: Birthday[];
   emergencyContacts: EmergencyContact[];
+  locationShares: LocationShare[];
 };
 
 type WeatherMood = "sunny" | "partly" | "cloudy" | "rain" | "storm" | "snow" | "fog" | "rainbow";
@@ -188,10 +201,11 @@ type ReminderIcon = "general" | "shopping" | "lightbulb" | "medicine" | "home" |
 type ProfileThemeId = "default" | "blue-light" | "aurora" | "green-home" | "graphite";
 type AppNotification = {
   id: string;
-  kind: "reminder" | "birthday";
+  kind: "reminder" | "birthday" | "location";
   title: string;
   body: string;
-  action: "reminderCalendar" | "birthdayCalendar";
+  action: "reminderCalendar" | "birthdayCalendar" | "location";
+  locationShareId?: string;
 };
 type AvatarOption = {
   id: string;
@@ -252,6 +266,17 @@ type EmergencyContactRow = {
   household_id: string;
   name: string;
   phone: string;
+};
+
+type LocationShareRow = {
+  id: string;
+  household_id: string;
+  resident_id: string;
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  expires_at: string;
+  created_at: string;
 };
 
 const reminderIconOptions: Array<{
@@ -327,6 +352,9 @@ const releaseNotes = {
     "Modais ganharam animações profissionais de abertura e fechamento.",
     "O convite por link ficou mais limpo e sem textos técnicos desnecessários.",
     "O dashboard agora mostra previsão do tempo com temperatura, estação do ano e ícones animados.",
+    "A central de notificações agora reúne lembretes, aniversários e localização compartilhada.",
+    "O modo lista dos calendários virou uma timeline vertical com dias vazios e eventos em sequência.",
+    "Moradores podem compartilhar a localização por 10 minutos ou 1 hora com a família.",
   ],
 };
 
@@ -398,6 +426,7 @@ const defaultState: AppState = {
   reminders: [],
   birthdays: [],
   emergencyContacts: [],
+  locationShares: [],
 };
 
 function mergeSeedItems<T extends { id: string }>(storedItems: T[] | undefined, seedItems: T[]) {
@@ -509,6 +538,7 @@ function loadState(): AppState {
       reminders: mergeSeedItems(parsed.reminders, defaultState.reminders).map(normalizeReminder),
       birthdays: mergeSeedItems(parsed.birthdays, defaultState.birthdays),
       emergencyContacts: parsed.emergencyContacts ?? [],
+      locationShares: parsed.locationShares ?? [],
       residents: (parsed.residents ?? defaultState.residents).map((resident, index) => ({
         ...resident,
         color: resident.color ?? ["#e50914", "#2f80ed", "#f2994a", "#27ae60"][index % 4],
@@ -608,16 +638,29 @@ function mapEmergencyContact(row: EmergencyContactRow): EmergencyContact {
   };
 }
 
+function mapLocationShare(row: LocationShareRow): LocationShare {
+  return {
+    id: row.id,
+    residentId: row.resident_id,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    accuracy: row.accuracy ?? undefined,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+  };
+}
+
 async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppState | null> {
   if (!supabase) {
     return null;
   }
 
-  const [residentsResult, remindersResult, birthdaysResult, contactsResult] = await Promise.all([
+  const [residentsResult, remindersResult, birthdaysResult, contactsResult, locationsResult] = await Promise.all([
     supabase.from("residents").select("*").eq("household_id", household.id).order("created_at"),
     supabase.from("reminders").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
     supabase.from("birthdays").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
     supabase.from("emergency_contacts").select("*").eq("household_id", household.id).order("created_at"),
+    supabase.from("location_shares").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
   ]);
 
   if (residentsResult.error || remindersResult.error || birthdaysResult.error || contactsResult.error) {
@@ -630,6 +673,7 @@ async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppS
     reminders: ((remindersResult.data ?? []) as ReminderRow[]).map(mapReminder),
     birthdays: ((birthdaysResult.data ?? []) as BirthdayRow[]).map(mapBirthday),
     emergencyContacts: ((contactsResult.data ?? []) as EmergencyContactRow[]).map(mapEmergencyContact),
+    locationShares: locationsResult.error ? [] : ((locationsResult.data ?? []) as LocationShareRow[]).map(mapLocationShare),
   };
 }
 
@@ -851,6 +895,25 @@ async function insertRemoteBirthday(householdId: string, birthday: Birthday) {
     household_id: householdId,
     name: birthday.name,
     date: birthday.date,
+  });
+
+  return !error;
+}
+
+async function insertRemoteLocationShare(householdId: string, share: LocationShare) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("location_shares").insert({
+    id: share.id,
+    household_id: householdId,
+    resident_id: share.residentId,
+    latitude: share.latitude,
+    longitude: share.longitude,
+    accuracy: share.accuracy ?? null,
+    expires_at: share.expiresAt,
+    created_at: share.createdAt,
   });
 
   return !error;
@@ -1417,6 +1480,8 @@ export default function HomePage() {
   const [showHouseholdInvite, setShowHouseholdInvite] = useState(false);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showLocationShare, setShowLocationShare] = useState(false);
+  const [selectedLocationShare, setSelectedLocationShare] = useState<LocationShare | null>(null);
   const [pendingInviteCode, setPendingInviteCode] = useState("");
   const [authTransitionActive, setAuthTransitionActive] = useState(false);
   const [welcomeHouseholdName, setWelcomeHouseholdName] = useState("");
@@ -1722,20 +1787,47 @@ export default function HomePage() {
             : `${birthday.name} em ${birthday.nextDistance}d`,
         action: "birthdayCalendar" as const,
       }));
+    const locationNotifications = appState.locationShares
+      .filter((share) => share.residentId !== activeResident?.id && new Date(share.expiresAt).getTime() > Date.now())
+      .map((share) => {
+        const resident = appState.residents.find((item) => item.id === share.residentId);
 
-    return [...reminderNotifications, ...birthdayNotifications].filter(
+        return {
+          id: `location-${share.id}`,
+          kind: "location" as const,
+          title: "Localização compartilhada",
+          body: `${resident?.name ?? "Alguém da casa"} compartilhou a localização`,
+          action: "location" as const,
+          locationShareId: share.id,
+        };
+      });
+
+    return [...locationNotifications, ...reminderNotifications, ...birthdayNotifications].filter(
       (notification) => !dismissedNotifications.includes(notification.id),
     );
-  }, [activeReminders, birthdayPreview, dismissedNotifications]);
+  }, [activeReminders, activeResident?.id, appState.locationShares, appState.residents, birthdayPreview, dismissedNotifications]);
   const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
   const hasLocalHouseholdAccess = Boolean(appState.household);
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
 
   function handleOpenNotification(notification: AppNotification) {
+    if (notification.action === "location" && notification.locationShareId) {
+      const share = appState.locationShares.find((item) => item.id === notification.locationShareId);
+      if (share) {
+        setShowNotifications(false);
+        setSelectedLocationShare(share);
+      }
+      return;
+    }
+
+    if (notification.kind === "location") {
+      return;
+    }
+
     saveCalendarView(notification.kind, "list");
     setShowNotifications(false);
-    setProfileModal(notification.action);
+    setProfileModal(notification.kind === "reminder" ? "reminderCalendar" : "birthdayCalendar");
   }
 
   function handleDismissNotification(notificationId: string) {
@@ -1752,6 +1844,47 @@ export default function HomePage() {
       saveDismissedNotifications(next);
       return next;
     });
+  }
+
+  function handleShareLocation(durationMinutes: 10 | 60) {
+    if (!activeResident || !appState.household) {
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      showAssistantMessage("Este aparelho não liberou localização pelo navegador.");
+      setShowLocationShare(false);
+      return;
+    }
+
+    showAssistantMessage("Buscando sua localização...", false);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const now = new Date();
+        const share: LocationShare = {
+          id: crypto.randomUUID(),
+          residentId: activeResident.id,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          createdAt: now.toISOString(),
+          expiresAt: new Date(now.getTime() + durationMinutes * 60_000).toISOString(),
+        };
+
+        await insertRemoteLocationShare(appState.household!.id, share);
+        setAppState((current) => ({
+          ...current,
+          locationShares: [share, ...current.locationShares],
+        }));
+        setShowLocationShare(false);
+        showAssistantMessage(`Localização compartilhada por ${durationMinutes === 10 ? "10 min" : "1h"}.`);
+      },
+      () => {
+        setShowLocationShare(false);
+        showAssistantMessage("Não consegui acessar sua localização. Verifique a permissão do navegador.");
+      },
+      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 10_000 },
+    );
   }
 
   async function refreshAccountHouseholds(userId = authUser?.id) {
@@ -2732,6 +2865,14 @@ export default function HomePage() {
               <button
                 className="icon-glass-button"
                 type="button"
+                onClick={() => setShowLocationShare(true)}
+                aria-label="Compartilhar localização"
+              >
+                <MapPin size={20} />
+              </button>
+              <button
+                className="icon-glass-button"
+                type="button"
                 onClick={() => setShowHouseholdInvite(true)}
                 aria-label="Convidar para o lar"
               >
@@ -2969,6 +3110,19 @@ export default function HomePage() {
             onOpen={handleOpenNotification}
           />
         ) : null}
+        {showLocationShare ? (
+          <LocationShareModal
+            onClose={() => setShowLocationShare(false)}
+            onShare={handleShareLocation}
+          />
+        ) : null}
+        {selectedLocationShare ? (
+          <LocationMapModal
+            residents={appState.residents}
+            share={selectedLocationShare}
+            onClose={() => setSelectedLocationShare(null)}
+          />
+        ) : null}
         {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
       </main>
     );
@@ -3160,7 +3314,13 @@ function NotificationsModal({
               <article className="notification-row" key={notification.id}>
                 <button className="notification-content" type="button" onClick={() => onOpen(notification)}>
                   <span className={`notification-kind notification-kind-${notification.kind}`}>
-                    {notification.kind === "birthday" ? <Cake size={17} /> : <Bell size={17} />}
+                    {notification.kind === "birthday" ? (
+                      <Cake size={17} />
+                    ) : notification.kind === "location" ? (
+                      <MapPin size={17} />
+                    ) : (
+                      <Bell size={17} />
+                    )}
                   </span>
                   <span>
                     <strong>{notification.title}</strong>
@@ -3193,6 +3353,91 @@ function NotificationsModal({
             </div>
           )}
         </div>
+      </section>
+    </div>
+  );
+}
+
+function LocationShareModal({
+  onClose,
+  onShare,
+}: {
+  onClose: () => void;
+  onShare: (durationMinutes: 10 | 60) => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+
+  return (
+    <div className={backdropClassName}>
+      <section className="dark-modal location-modal" role="dialog" aria-modal="true">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <span className="modal-icon location-modal-icon">
+          <Navigation size={30} />
+        </span>
+        <p className="eyebrow">Localização</p>
+        <h2>Compartilhar agora</h2>
+        <p className="location-modal-copy">
+          Sua família receberá um aviso no sino e poderá abrir o mapa enquanto o compartilhamento estiver ativo.
+        </p>
+        <div className="location-duration-grid">
+          <button type="button" onClick={() => onShare(10)}>
+            <strong>10 min</strong>
+            <span>Rápido</span>
+          </button>
+          <button type="button" onClick={() => onShare(60)}>
+            <strong>1h</strong>
+            <span>Temporário</span>
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function LocationMapModal({
+  residents,
+  share,
+  onClose,
+}: {
+  residents: Resident[];
+  share: LocationShare;
+  onClose: () => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const resident = residents.find((item) => item.id === share.residentId);
+  const mapUrl = `https://www.google.com/maps?q=${share.latitude},${share.longitude}`;
+  const createdAt = new Date(share.createdAt).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return (
+    <div className={backdropClassName}>
+      <section className="dark-modal location-modal" role="dialog" aria-modal="true">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <span className="modal-icon location-modal-icon">
+          <MapPin size={30} />
+        </span>
+        <p className="eyebrow">Mapa</p>
+        <h2>{resident?.name ?? "Morador"}</h2>
+        <div className="location-map-preview">
+          <MapPin size={34} />
+          <span>{share.latitude.toFixed(4)}, {share.longitude.toFixed(4)}</span>
+        </div>
+        <p className="location-modal-copy">
+          Compartilhado em {createdAt}
+          {share.accuracy ? ` · precisão aproximada ${Math.round(share.accuracy)}m` : ""}
+        </p>
+        <a className="primary-action location-map-link" href={mapUrl} target="_blank" rel="noreferrer">
+          <Navigation size={18} />
+          Abrir no mapa
+        </a>
       </section>
     </div>
   );
