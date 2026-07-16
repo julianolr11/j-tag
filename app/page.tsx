@@ -160,6 +160,8 @@ const supabase =
       })
     : null;
 const MODAL_EXIT_MS = 220;
+const PREPARING_HOUSEHOLD_MS = 1450;
+const WELCOME_HOUSEHOLD_MS = 3600;
 
 type CalendarViewMode = "calendar" | "list";
 type ReminderIcon = "general" | "shopping" | "lightbulb" | "medicine" | "home" | "document";
@@ -245,37 +247,31 @@ const reminderIconMap = Object.fromEntries(
 const profileThemes: Array<{
   id: ProfileThemeId;
   label: string;
-  description: string;
   swatches: [string, string, string];
 }> = [
   {
     id: "default",
     label: "J-tag",
-    description: "Escuro com vermelho e azul.",
     swatches: ["#e50914", "#2f80ed", "#050505"],
   },
   {
     id: "blue-light",
     label: "Azul claro",
-    description: "Claro, limpo e azul.",
     swatches: ["#eaf6ff", "#4aa3ff", "#0f5fa8"],
   },
   {
     id: "aurora",
     label: "Aurora",
-    description: "Roxo, rosa e noite.",
     swatches: ["#ff4fd8", "#7c5cff", "#080616"],
   },
   {
     id: "green-home",
     label: "Verde casa",
-    description: "Verde, menta e aconchego.",
     swatches: ["#35d07f", "#c8ff8c", "#06130d"],
   },
   {
     id: "graphite",
     label: "Grafite",
-    description: "Preto, prata e âmbar.",
     swatches: ["#d8dde4", "#f4b860", "#08090b"],
   },
 ];
@@ -293,16 +289,16 @@ function getScreenShellClass(theme?: string | null) {
 }
 
 const releaseNotes = {
-  version: "v0.4",
+  version: "v0.5",
   title: "Novidades do J-tag",
-  date: "15/07/2026",
+  date: "16/07/2026",
   items: [
-    "Convite por link entra direto na família, sem pedir para digitar o código.",
-    "Perfis agora podem escolher avatares minimalistas prontos no lugar do upload de foto.",
-    "Lembretes e aniversários podem ser excluídos pelo detalhe do calendário com confirmação.",
-    "Aniversários ficam compartilhados entre todos os perfis da casa; lembretes continuam individuais.",
-    "Assistente de voz entende cancelar, cancela ao tocar de novo no microfone e também ao tocar fora.",
-    "Calendários têm navegação por mês, modo lista/calendário e detalhes ao tocar nos itens.",
+    "Cada perfil agora pode escolher entre 5 temas visuais, incluindo o padrão J-tag e um tema claro azul.",
+    "A troca de tema tem preview com view transition antes de salvar no perfil.",
+    "Login fica salvo no aparelho e pode ir direto para a tela de boas-vindas quando a sessão existir.",
+    "A tela de boas-vindas da casa ficou mais longa e suave antes de abrir o painel.",
+    "Modais ganharam animações profissionais de abertura e fechamento.",
+    "O convite por link ficou mais limpo e sem textos técnicos desnecessários.",
   ],
 };
 
@@ -1306,6 +1302,7 @@ export default function HomePage() {
   >(null);
   const [newResidentPhoto, setNewResidentPhoto] = useState("");
   const [editResidentPhoto, setEditResidentPhoto] = useState("");
+  const [themePreview, setThemePreview] = useState<ProfileThemeId | null>(null);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [isListening, setIsListening] = useState(false);
@@ -1457,7 +1454,7 @@ export default function HomePage() {
   const reminderPreview = useMemo(() => getReminderPreview(activeReminders), [activeReminders]);
   const birthdayPreview = useMemo(() => getBirthdayPreview(appState.birthdays), [appState.birthdays]);
   const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
-  const currentTheme = activeResident?.theme ?? selectedResident?.theme ?? "default";
+  const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
 
   async function refreshAccountHouseholds(userId = authUser?.id) {
@@ -1476,7 +1473,7 @@ export default function HomePage() {
     return remoteState.residents.find((resident) => resident.id === lastResidentId) ?? remoteState.residents[0] ?? null;
   }
 
-  function enterHouseholdWithWelcome(remoteState: AppState) {
+  function enterHouseholdWithWelcome(remoteState: AppState, options: { fromAuth?: boolean } = {}) {
     if (!remoteState.household) {
       return;
     }
@@ -1490,19 +1487,22 @@ export default function HomePage() {
     setRecentHouseholds(loadRecentHouseholds());
     setPendingInviteCode("");
     setSelectedResident(null);
-    setAuthTransitionActive(false);
-    setWelcomeHouseholdName(remoteState.household.name);
 
     welcomeTimerRef.current = window.setTimeout(() => {
-      runScreenTransition("enter", () => {
-        setAppState(remoteState);
-        setActiveResident(preferredResident);
-        if (preferredResident) {
-          saveLastResident(preferredResident.id);
-        }
-        setWelcomeHouseholdName("");
-      });
-    }, 2850);
+      setAuthTransitionActive(false);
+      setWelcomeHouseholdName(remoteState.household?.name ?? "");
+
+      welcomeTimerRef.current = window.setTimeout(() => {
+        runScreenTransition("enter", () => {
+          setAppState(remoteState);
+          setActiveResident(preferredResident);
+          if (preferredResident) {
+            saveLastResident(preferredResident.id);
+          }
+          setWelcomeHouseholdName("");
+        });
+      }, WELCOME_HOUSEHOLD_MS);
+    }, options.fromAuth ? PREPARING_HOUSEHOLD_MS : 0);
   }
 
   async function handleAuthSubmit(mode: "sign-in" | "sign-up", email: string, password: string) {
@@ -1543,7 +1543,7 @@ export default function HomePage() {
           : null;
 
       if (remoteState?.household) {
-        enterHouseholdWithWelcome(remoteState);
+        enterHouseholdWithWelcome(remoteState, { fromAuth: true });
       } else {
         setAuthTransitionActive(false);
       }
@@ -1923,7 +1923,14 @@ export default function HomePage() {
     }));
     setActiveResident(updatedResident);
     setEditResidentPhoto("");
+    setThemePreview(null);
     setProfileModal(null);
+  }
+
+  function handlePreviewTheme(theme: ProfileThemeId) {
+    runScreenTransition("soft", () => {
+      setThemePreview(theme);
+    });
   }
 
   async function handleDeleteResident() {
@@ -2446,6 +2453,7 @@ export default function HomePage() {
                 type="button"
                 onClick={() => {
                   setEditResidentPhoto("");
+                  setThemePreview(getProfileTheme(activeResident.theme));
                   setProfileModal("edit");
                 }}
                 aria-label="Editar perfil"
@@ -2558,10 +2566,12 @@ export default function HomePage() {
             resident={activeResident}
             onClose={() => {
               setEditResidentPhoto("");
+              setThemePreview(null);
               setProfileModal(null);
             }}
             onDelete={handleDeleteResident}
             onPhotoSelect={setEditResidentPhoto}
+            onThemePreview={handlePreviewTheme}
             onSubmit={handleUpdateResident}
           />
         ) : null}
@@ -3701,6 +3711,7 @@ function EditResidentModal({
   onClose,
   onDelete,
   onPhotoSelect,
+  onThemePreview,
   onSubmit,
 }: {
   photo: string;
@@ -3708,6 +3719,7 @@ function EditResidentModal({
   onClose: () => void;
   onDelete: () => void;
   onPhotoSelect: (photo: string) => void;
+  onThemePreview: (theme: ProfileThemeId) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
@@ -3752,6 +3764,7 @@ function EditResidentModal({
                 <input
                   defaultChecked={getProfileTheme(resident.theme) === theme.id}
                   name="theme"
+                  onChange={() => onThemePreview(theme.id)}
                   type="radio"
                   value={theme.id}
                 />
@@ -3761,7 +3774,6 @@ function EditResidentModal({
                   ))}
                 </span>
                 <strong>{theme.label}</strong>
-                <small>{theme.description}</small>
               </label>
             ))}
           </div>
