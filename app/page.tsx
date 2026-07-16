@@ -9,6 +9,12 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
+  Cloudy,
   FileText,
   HeartPulse,
   House,
@@ -21,8 +27,11 @@ import {
   Phone,
   Pill,
   Plus,
+  Rainbow,
   ShoppingCart,
   Siren,
+  Sun,
+  Thermometer,
   Users,
   Trash2,
   UserPlus,
@@ -77,6 +86,16 @@ type AppState = {
   reminders: Reminder[];
   birthdays: Birthday[];
   emergencyContacts: EmergencyContact[];
+};
+
+type WeatherMood = "sunny" | "partly" | "cloudy" | "rain" | "storm" | "snow" | "fog" | "rainbow";
+
+type TodayWeather = {
+  status: "loading" | "ready" | "unavailable";
+  temperature?: number;
+  description: string;
+  season: string;
+  mood: WeatherMood;
 };
 
 type StarterResidentInput = {
@@ -299,6 +318,7 @@ const releaseNotes = {
     "A tela de boas-vindas da casa ficou mais longa e suave antes de abrir o painel.",
     "Modais ganharam animações profissionais de abertura e fechamento.",
     "O convite por link ficou mais limpo e sem textos técnicos desnecessários.",
+    "O dashboard agora mostra previsão do tempo com temperatura, estação do ano e ícones animados.",
   ],
 };
 
@@ -998,6 +1018,69 @@ function formatDistanceLabel(distance: number) {
   return `Em ${distance}d`;
 }
 
+function getSouthernSeason(date = new Date()) {
+  const marker = Number(`${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`);
+
+  if (marker >= 1221 || marker <= 319) {
+    return "Verão";
+  }
+
+  if (marker >= 320 && marker <= 620) {
+    return "Outono";
+  }
+
+  if (marker >= 621 && marker <= 922) {
+    return "Inverno";
+  }
+
+  return "Primavera";
+}
+
+function getWeatherMood(code: number): Pick<TodayWeather, "description" | "mood"> {
+  if (code === 0) {
+    return { description: "Sol aberto", mood: "sunny" };
+  }
+
+  if (code === 1) {
+    return { description: "Sol suave", mood: "rainbow" };
+  }
+
+  if (code === 2) {
+    return { description: "Sol e nuvens", mood: "partly" };
+  }
+
+  if (code === 3) {
+    return { description: "Nublado", mood: "cloudy" };
+  }
+
+  if (code === 45 || code === 48) {
+    return { description: "Neblina", mood: "fog" };
+  }
+
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) {
+    return { description: "Chuva", mood: "rain" };
+  }
+
+  if (code >= 71 && code <= 77) {
+    return { description: "Frio intenso", mood: "snow" };
+  }
+
+  if (code >= 95) {
+    return { description: "Temporal", mood: "storm" };
+  }
+
+  return { description: "Clima do dia", mood: "partly" };
+}
+
+function getDefaultWeather(): TodayWeather {
+  return {
+    status: "loading",
+    description: "Buscando clima",
+    season: getSouthernSeason(),
+    mood: "partly",
+  };
+}
+
 function getReminderPreview(reminders: Reminder[]) {
   const today = startOfToday();
   const dated = reminders
@@ -1313,6 +1396,7 @@ export default function HomePage() {
   const [accountHouseholds, setAccountHouseholds] = useState<RecentHousehold[]>([]);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [todayWeather, setTodayWeather] = useState<TodayWeather>(() => getDefaultWeather());
   const [profileModal, setProfileModal] = useState<
     "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | null
   >(null);
@@ -1424,6 +1508,88 @@ export default function HomePage() {
         window.clearTimeout(welcomeTimerRef.current);
       }
       authSubscription.subscription?.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadWeather(latitude: number, longitude: number) {
+      try {
+        const params = new URLSearchParams({
+          latitude: String(latitude),
+          longitude: String(longitude),
+          current: "temperature_2m,weather_code",
+          timezone: "auto",
+        });
+        const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
+
+        if (!response.ok) {
+          throw new Error("Weather request failed");
+        }
+
+        const data = (await response.json()) as {
+          current?: {
+            temperature_2m?: number;
+            weather_code?: number;
+          };
+        };
+        const code = Number(data.current?.weather_code ?? 2);
+        const mood = getWeatherMood(code);
+
+        if (isMounted) {
+          setTodayWeather({
+            status: "ready",
+            temperature:
+              typeof data.current?.temperature_2m === "number" ? Math.round(data.current.temperature_2m) : undefined,
+            description: mood.description,
+            season: getSouthernSeason(),
+            mood: mood.mood,
+          });
+        }
+      } catch {
+        if (isMounted) {
+          setTodayWeather({
+            status: "unavailable",
+            description: "Clima indisponível",
+            season: getSouthernSeason(),
+            mood: "partly",
+          });
+        }
+      }
+    }
+
+    if (!navigator.geolocation) {
+      setTodayWeather({
+        status: "unavailable",
+        description: "Sem localização",
+        season: getSouthernSeason(),
+        mood: "partly",
+      });
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        void loadWeather(position.coords.latitude, position.coords.longitude);
+      },
+      () => {
+        if (isMounted) {
+          setTodayWeather({
+            status: "unavailable",
+            description: "Permita localização",
+            season: getSouthernSeason(),
+            mood: "partly",
+          });
+        }
+      },
+      { enableHighAccuracy: false, maximumAge: 30 * 60 * 1000, timeout: 7000 },
+    );
+
+    return () => {
+      isMounted = false;
     };
   }, []);
 
@@ -2529,12 +2695,15 @@ export default function HomePage() {
               </div>
             </div>
             <div className="dashboard-today-card">
-              <span>{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span>
-              <strong>
-                {dashboardReminders.today.length + dashboardBirthdays.today.length
-                  ? `${dashboardReminders.today.length + dashboardBirthdays.today.length} item hoje`
-                  : "Dia tranquilo"}
-              </strong>
+              <div className="dashboard-today-copy">
+                <span>{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span>
+                <strong>
+                  {dashboardReminders.today.length + dashboardBirthdays.today.length
+                    ? `${dashboardReminders.today.length + dashboardBirthdays.today.length} item hoje`
+                    : "Dia tranquilo"}
+                </strong>
+              </div>
+              <WeatherWidget weather={todayWeather} />
             </div>
           </div>
 
@@ -2809,6 +2978,38 @@ export default function HomePage() {
       ) : null}
       {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
     </main>
+  );
+}
+
+function WeatherWidget({ weather }: { weather: TodayWeather }) {
+  const iconMap: Record<WeatherMood, LucideIcon> = {
+    sunny: Sun,
+    partly: CloudSun,
+    cloudy: Cloudy,
+    rain: CloudRain,
+    storm: CloudLightning,
+    snow: CloudSnow,
+    fog: CloudFog,
+    rainbow: Rainbow,
+  };
+  const WeatherIcon = iconMap[weather.mood];
+  const temperature = typeof weather.temperature === "number" ? `${weather.temperature}°` : "--";
+
+  return (
+    <div className={`weather-widget weather-${weather.mood}`} aria-label={`Previsão do tempo: ${weather.description}`}>
+      <div className="weather-orbit" aria-hidden="true">
+        <WeatherIcon size={32} />
+        {weather.mood === "rain" || weather.mood === "storm" ? <span className="weather-drops" /> : null}
+      </div>
+      <div className="weather-copy">
+        <span>
+          <Thermometer size={13} />
+          {weather.status === "loading" ? "..." : temperature}
+        </span>
+        <strong>{weather.description}</strong>
+        <em>{weather.season}</em>
+      </div>
+    </div>
   );
 }
 
