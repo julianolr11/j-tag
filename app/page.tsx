@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { createClient, type User } from "@supabase/supabase-js";
 import {
@@ -38,6 +38,7 @@ type Resident = {
   role: string;
   pin: string;
   color: string;
+  theme?: ProfileThemeId;
   photo?: string;
 };
 
@@ -158,9 +159,11 @@ const supabase =
         },
       })
     : null;
+const MODAL_EXIT_MS = 220;
 
 type CalendarViewMode = "calendar" | "list";
 type ReminderIcon = "general" | "shopping" | "lightbulb" | "medicine" | "home" | "document";
+type ProfileThemeId = "default" | "blue-light" | "aurora" | "green-home" | "graphite";
 type AvatarOption = {
   id: string;
   label: string;
@@ -196,6 +199,7 @@ type ResidentRow = {
   pin: string;
   color: string;
   photo_url: string | null;
+  theme?: string | null;
 };
 
 type ReminderRow = {
@@ -237,6 +241,56 @@ const reminderIconOptions: Array<{
 const reminderIconMap = Object.fromEntries(
   reminderIconOptions.map((option) => [option.id, option]),
 ) as Record<ReminderIcon, (typeof reminderIconOptions)[number]>;
+
+const profileThemes: Array<{
+  id: ProfileThemeId;
+  label: string;
+  description: string;
+  swatches: [string, string, string];
+}> = [
+  {
+    id: "default",
+    label: "J-tag",
+    description: "Escuro com vermelho e azul.",
+    swatches: ["#e50914", "#2f80ed", "#050505"],
+  },
+  {
+    id: "blue-light",
+    label: "Azul claro",
+    description: "Claro, limpo e azul.",
+    swatches: ["#eaf6ff", "#4aa3ff", "#0f5fa8"],
+  },
+  {
+    id: "aurora",
+    label: "Aurora",
+    description: "Roxo, rosa e noite.",
+    swatches: ["#ff4fd8", "#7c5cff", "#080616"],
+  },
+  {
+    id: "green-home",
+    label: "Verde casa",
+    description: "Verde, menta e aconchego.",
+    swatches: ["#35d07f", "#c8ff8c", "#06130d"],
+  },
+  {
+    id: "graphite",
+    label: "Grafite",
+    description: "Preto, prata e âmbar.",
+    swatches: ["#d8dde4", "#f4b860", "#08090b"],
+  },
+];
+
+function isProfileTheme(value: string): value is ProfileThemeId {
+  return profileThemes.some((theme) => theme.id === value);
+}
+
+function getProfileTheme(value?: string | null): ProfileThemeId {
+  return value && isProfileTheme(value) ? value : "default";
+}
+
+function getScreenShellClass(theme?: string | null) {
+  return `screen-shell theme-${getProfileTheme(theme)}`;
+}
 
 const releaseNotes = {
   version: "v0.4",
@@ -434,6 +488,7 @@ function loadState(): AppState {
       residents: (parsed.residents ?? defaultState.residents).map((resident, index) => ({
         ...resident,
         color: resident.color ?? ["#e50914", "#2f80ed", "#f2994a", "#27ae60"][index % 4],
+        theme: getProfileTheme(resident.theme),
       })),
     };
   } catch {
@@ -498,6 +553,7 @@ function mapResident(row: ResidentRow): Resident {
     role: row.role,
     pin: row.pin,
     color: row.color,
+    theme: getProfileTheme(row.theme),
     photo: row.photo_url ?? undefined,
   };
 }
@@ -650,7 +706,7 @@ async function createRemoteHousehold(household: Household, resident: Resident) {
     return false;
   }
 
-  const { error: residentError } = await supabase.from("residents").insert({
+  const residentPayload = {
     id: resident.id,
     household_id: household.id,
     name: resident.name,
@@ -658,7 +714,15 @@ async function createRemoteHousehold(household: Household, resident: Resident) {
     pin: resident.pin,
     color: resident.color,
     photo_url: resident.photo ?? null,
-  });
+    theme: getProfileTheme(resident.theme),
+  };
+
+  let { error: residentError } = await supabase.from("residents").insert(residentPayload);
+  if (residentError && residentError.message.toLowerCase().includes("theme")) {
+    const { theme: _theme, ...fallbackPayload } = residentPayload;
+    const fallbackResult = await supabase.from("residents").insert(fallbackPayload);
+    residentError = fallbackResult.error;
+  }
 
   if (residentError) {
     return false;
@@ -679,7 +743,7 @@ async function insertRemoteResident(householdId: string, resident: Resident) {
     return false;
   }
 
-  const { error } = await supabase.from("residents").insert({
+  const residentPayload = {
     id: resident.id,
     household_id: householdId,
     name: resident.name,
@@ -687,7 +751,15 @@ async function insertRemoteResident(householdId: string, resident: Resident) {
     pin: resident.pin,
     color: resident.color,
     photo_url: resident.photo ?? null,
-  });
+    theme: getProfileTheme(resident.theme),
+  };
+
+  let { error } = await supabase.from("residents").insert(residentPayload);
+  if (error && error.message.toLowerCase().includes("theme")) {
+    const { theme: _theme, ...fallbackPayload } = residentPayload;
+    const fallbackResult = await supabase.from("residents").insert(fallbackPayload);
+    error = fallbackResult.error;
+  }
 
   return !error;
 }
@@ -697,15 +769,24 @@ async function updateRemoteResident(resident: Resident) {
     return false;
   }
 
-  const { error } = await supabase
+  const updatePayload = {
+    name: resident.name,
+    role: resident.role,
+    pin: resident.pin,
+    photo_url: resident.photo ?? null,
+    theme: getProfileTheme(resident.theme),
+  };
+
+  let { error } = await supabase
     .from("residents")
-    .update({
-      name: resident.name,
-      role: resident.role,
-      pin: resident.pin,
-      photo_url: resident.photo ?? null,
-    })
+    .update(updatePayload)
     .eq("id", resident.id);
+
+  if (error && error.message.toLowerCase().includes("theme")) {
+    const { theme: _theme, ...fallbackPayload } = updatePayload;
+    const fallbackResult = await supabase.from("residents").update(fallbackPayload).eq("id", resident.id);
+    error = fallbackResult.error;
+  }
 
   return !error;
 }
@@ -1175,6 +1256,35 @@ function parseSpokenBirthdayDate(value: string) {
   return `${String(parts.day).padStart(2, "0")}/${String(parts.month).padStart(2, "0")}`;
 }
 
+function useModalClose(onClose: () => void) {
+  const [isClosing, setIsClosing] = useState(false);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current);
+      }
+    };
+  }, []);
+
+  function requestClose() {
+    if (timerRef.current || isClosing) {
+      return;
+    }
+
+    setIsClosing(true);
+    timerRef.current = window.setTimeout(() => {
+      onClose();
+    }, MODAL_EXIT_MS);
+  }
+
+  return {
+    backdropClassName: `modal-backdrop ${isClosing ? "modal-backdrop-closing" : ""}`,
+    requestClose,
+  };
+}
+
 export default function HomePage() {
   const [appState, setAppState] = useState<AppState>(defaultState);
   const [selectedResident, setSelectedResident] = useState<Resident | null>(null);
@@ -1347,6 +1457,8 @@ export default function HomePage() {
   const reminderPreview = useMemo(() => getReminderPreview(activeReminders), [activeReminders]);
   const birthdayPreview = useMemo(() => getBirthdayPreview(appState.birthdays), [appState.birthdays]);
   const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
+  const currentTheme = activeResident?.theme ?? selectedResident?.theme ?? "default";
+  const screenShellClassName = getScreenShellClass(currentTheme);
 
   async function refreshAccountHouseholds(userId = authUser?.id) {
     if (!userId) {
@@ -1468,6 +1580,7 @@ export default function HomePage() {
       role: role || roleFallback,
       pin: newPin,
       color: ["#e50914", "#2f80ed", "#f2994a", "#27ae60"][appState.residents.length % 4],
+      theme: "default",
       photo: newResidentPhoto || undefined,
     } satisfies Resident;
   }
@@ -1679,6 +1792,7 @@ export default function HomePage() {
       color: ["#e50914", "#2f80ed", "#f2994a", "#27ae60"][
         appState.residents.length % 4
       ],
+      theme: "default",
       photo: newResidentPhoto || undefined,
     };
 
@@ -1785,6 +1899,7 @@ export default function HomePage() {
     const name = String(form.get("name") ?? "").trim();
     const role = String(form.get("role") ?? "").trim();
     const newPin = String(form.get("pin") ?? "").trim();
+    const theme = getProfileTheme(String(form.get("theme") ?? activeResident.theme ?? "default"));
 
     if (!name || newPin.length !== 4) {
       return;
@@ -1795,6 +1910,7 @@ export default function HomePage() {
       name,
       role: role || "Morador",
       pin: newPin,
+      theme,
       photo: editResidentPhoto || activeResident.photo,
     };
 
@@ -2227,7 +2343,7 @@ export default function HomePage() {
 
   if (authLoading) {
     return (
-      <main className="screen-shell">
+      <main className={screenShellClassName}>
         <section className="splash-screen" aria-label="Carregando J-Tag">
           <div className="splash-logo">
             <LogoMark size={76} />
@@ -2239,7 +2355,7 @@ export default function HomePage() {
 
   if (authTransitionActive) {
     return (
-      <main className="screen-shell">
+      <main className={screenShellClassName}>
         <WelcomeHouseholdScreen preparing />
       </main>
     );
@@ -2247,7 +2363,7 @@ export default function HomePage() {
 
   if (!authUser) {
     return (
-      <main className="screen-shell">
+      <main className={screenShellClassName}>
         {showSplash ? (
           <section className="splash-screen" aria-label="Carregando J-Tag">
             <div className="splash-logo">
@@ -2268,7 +2384,7 @@ export default function HomePage() {
 
   if (welcomeHouseholdName) {
     return (
-      <main className="screen-shell">
+      <main className={screenShellClassName}>
         <WelcomeHouseholdScreen householdName={welcomeHouseholdName} />
       </main>
     );
@@ -2276,7 +2392,7 @@ export default function HomePage() {
 
   if (!appState.household) {
     return (
-      <main className="screen-shell">
+      <main className={screenShellClassName}>
         {showSplash ? (
           <section className="splash-screen" aria-label="Carregando J-Tag">
             <div className="splash-logo">
@@ -2302,7 +2418,7 @@ export default function HomePage() {
 
   if (activeResident) {
     return (
-      <main className="screen-shell">
+      <main className={screenShellClassName}>
         <section className="inside-view">
           <div className="inside-topbar">
             <button className="brand-button" type="button" onClick={() => setShowReleaseNotes(true)} aria-label="Ver novidades">
@@ -2487,7 +2603,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="screen-shell">
+    <main className={screenShellClassName}>
       {showSplash ? (
         <section className="splash-screen" aria-label="Carregando J-Tag">
           <div className="splash-logo">
@@ -3081,11 +3197,12 @@ function HouseholdInviteModal({
   onShare: () => void;
 }) {
   const inviteLink = buildInviteLink(household);
+  const { backdropClassName, requestClose } = useModalClose(onClose);
 
   return (
-    <div className="modal-backdrop">
+    <div className={backdropClassName}>
       <section className="dark-modal invite-modal" role="dialog" aria-modal="true">
-        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
         <span className="emergency-icon neutral-icon">
@@ -3106,9 +3223,6 @@ function HouseholdInviteModal({
             <span>{inviteLink}</span>
           </div>
         ) : null}
-        <p className="invite-note">
-          Quem abrir esse link consegue entrar na família e criar um perfil. No banco real, esse convite vai poder expirar e ter permissão.
-        </p>
         <div className="invite-actions">
           <button className="secondary-action" type="button" onClick={onCopy}>
             <KeyRound size={18} />
@@ -3259,6 +3373,7 @@ function PinModal({
 }) {
   const [useNativeKeyboard, setUseNativeKeyboard] = useState(false);
   const nativeInputRef = useRef<HTMLInputElement>(null);
+  const { backdropClassName, requestClose } = useModalClose(onClose);
 
   useEffect(() => {
     const mediaQueries = [
@@ -3284,9 +3399,9 @@ function PinModal({
   }, [useNativeKeyboard]);
 
   return (
-    <div className="modal-backdrop">
+    <div className={backdropClassName}>
       <section className="dark-modal" role="dialog" aria-modal="true" aria-label="Entrar com PIN">
-        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
         <Avatar resident={resident} variant="large" />
@@ -3394,10 +3509,12 @@ function AvatarPicker({
 }
 
 function ReleaseNotesModal({ onClose }: { onClose: () => void }) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+
   return (
-    <div className="modal-backdrop">
+    <div className={backdropClassName}>
       <section className="dark-modal release-modal" role="dialog" aria-modal="true" aria-labelledby="release-title">
-        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
         <span className="release-icon">
@@ -3417,7 +3534,7 @@ function ReleaseNotesModal({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </div>
-        <button className="primary-action" type="button" onClick={onClose}>
+        <button className="primary-action" type="button" onClick={requestClose}>
           <Check size={18} />
           Entendi
         </button>
@@ -3437,10 +3554,12 @@ function NewResidentModal({
   onPhotoSelect: (photo: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+
   return (
-    <div className="modal-backdrop">
+    <div className={backdropClassName}>
       <form className="dark-modal" onSubmit={onSubmit}>
-        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
         <AvatarPicker photo={photo} onSelect={onPhotoSelect} />
@@ -3485,10 +3604,12 @@ function ReminderModal({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+
   return (
-    <div className="modal-backdrop">
+    <div className={backdropClassName}>
       <form className="dark-modal" onSubmit={onSubmit}>
-        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
         <span className="emergency-icon neutral-icon">
@@ -3539,10 +3660,12 @@ function BirthdayModal({
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+
   return (
-    <div className="modal-backdrop">
+    <div className={backdropClassName}>
       <form className="dark-modal" onSubmit={onSubmit}>
-        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
         <span className="emergency-icon neutral-icon">
@@ -3587,10 +3710,12 @@ function EditResidentModal({
   onPhotoSelect: (photo: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+
   return (
-    <div className="modal-backdrop">
+    <div className={backdropClassName}>
       <form className="dark-modal" onSubmit={onSubmit}>
-        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
         <AvatarPicker fallbackColor={resident.color} photo={photo} onSelect={onPhotoSelect} />
@@ -3618,6 +3743,28 @@ function EditResidentModal({
             defaultValue={resident.pin}
             required
           />
+        </div>
+        <div className="field">
+          <span className="field-label">Tema do perfil</span>
+          <div className="theme-choice-grid">
+            {profileThemes.map((theme) => (
+              <label className="theme-choice" key={theme.id}>
+                <input
+                  defaultChecked={getProfileTheme(resident.theme) === theme.id}
+                  name="theme"
+                  type="radio"
+                  value={theme.id}
+                />
+                <span className="theme-swatch-row" aria-hidden="true">
+                  {theme.swatches.map((swatch) => (
+                    <i key={swatch} style={{ background: swatch }} />
+                  ))}
+                </span>
+                <strong>{theme.label}</strong>
+                <small>{theme.description}</small>
+              </label>
+            ))}
+          </div>
         </div>
         <button className="primary-action" type="submit">
           <Check size={18} />
@@ -3674,6 +3821,7 @@ function CalendarModal({
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(today));
   const [selectedCalendarItem, setSelectedCalendarItem] = useState<CalendarItem | null>(null);
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
+  const { backdropClassName, requestClose } = useModalClose(onClose);
   const calendarDays = getCalendarDays(currentMonth);
   const monthLabel = currentMonth.toLocaleDateString("pt-BR", {
     month: "long",
@@ -3748,9 +3896,9 @@ function CalendarModal({
   }
 
   return (
-    <div className="modal-backdrop">
+    <div className={backdropClassName}>
       <section className="dark-modal calendar-modal" role="dialog" aria-modal="true">
-        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
         <div className="calendar-modal-header">
@@ -3930,11 +4078,12 @@ function EmergencyModal({
   onRemoveContact: (contactId: string) => void;
 }) {
   const [showContactForm, setShowContactForm] = useState(false);
+  const { backdropClassName, requestClose } = useModalClose(onClose);
 
   return (
-    <div className="modal-backdrop">
+    <div className={backdropClassName}>
       <section className="dark-modal emergency-modal" role="dialog" aria-modal="true">
-        <button className="close-button" type="button" onClick={onClose} aria-label="Fechar">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
         <span className="emergency-icon">
@@ -4022,3 +4171,5 @@ function EmergencyModal({
     </div>
   );
 }
+
+

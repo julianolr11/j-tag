@@ -13,6 +13,12 @@
   --blue: #2f80ed;
   --yellow: #f2994a;
   --green: #27ae60;
+  --app-bg:
+    radial-gradient(circle at 8% 24%, rgba(229, 9, 20, 0.28), transparent 34%),
+    radial-gradient(circle at 88% 12%, rgba(47, 128, 237, 0.18), transparent 32%),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.08), transparent 26%),
+    linear-gradient(180deg, #161616 0%, #070707 48%, #000 100%);
+  --texture-opacity: 0.55;
 }
 
 * {
@@ -21,11 +27,7 @@
 
 html,
 body {
-  background:
-    radial-gradient(circle at 8% 24%, rgba(229, 9, 20, 0.28), transparent 34%),
-    radial-gradient(circle at 88% 12%, rgba(47, 128, 237, 0.18), transparent 32%),
-    linear-gradient(115deg, rgba(255, 255, 255, 0.08), transparent 26%),
-    linear-gradient(180deg, #161616 0%, #070707 48%, #000 100%);
+  background: var(--app-bg);
   background-color: #050505;
   min-height: 100%;
 }
@@ -35,11 +37,7 @@ html {
 }
 
 body {
-  background:
-    radial-gradient(circle at 8% 24%, rgba(229, 9, 20, 0.28), transparent 34%),
-    radial-gradient(circle at 88% 12%, rgba(47, 128, 237, 0.18), transparent 32%),
-    linear-gradient(115deg, rgba(255, 255, 255, 0.08), transparent 26%),
-    linear-gradient(180deg, #161616 0%, #070707 48%, #000 100%);
+  background: var(--app-bg);
   background-attachment: fixed;
   background-color: #050505;
   background-size: cover;
@@ -54,7 +52,7 @@ body::before {
     repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 18px);
   content: "";
   inset: 0;
-  opacity: 0.55;
+  opacity: var(--texture-opacity);
   pointer-events: none;
   position: fixed;
 }
@@ -79,6 +77,129 @@ a {
   overflow-x: hidden;
   position: relative;
   view-transition-name: app-screen;
+  background: var(--app-bg);
+  color: var(--text);
+  transition: background 320ms ease, color 220ms ease;
+}
+
+.theme-default {
+  --bg: #050505;
+  --panel: #151515;
+  --panel-soft: #1f1f1f;
+  --text: #f5f5f1;
+  --muted: #a6a6a6;
+  --line: #303030;
+  --red: #e50914;
+  --red-dark: #a90710;
+  --blue: #2f80ed;
+  --glass: rgba(255, 255, 255, 0.105);
+  --glass-line: rgba(255, 255, 255, 0.22);
+  --glass-hot: rgba(255, 255, 255, 0.32);
+  --texture-opacity: 0.55;
+  --app-bg:
+    radial-gradient(circle at 8% 24%, rgba(229, 9, 20, 0.28), transparent 34%),
+    radial-gradient(circle at 88% 12%, rgba(47, 128, 237, 0.18), transparent 32%),
+    linear-gradient(115deg, rgba(255, 255, 255, 0.08), transparent 26%),
+    linear-gradient(180deg, #161616 0%, #070707 48%, #000 100%);
+}
+
+.theme-blue-light {
+  --bg: #eff8ff;
+  --panel: #ffffff;
+  --panel-soft: #dbeeff;
+  --text: #082033;
+  --muted: #51708c;
+  --line: rgba(25, 92, 145, 0.22);
+  --red: #1976d2;
+  --red-dark: #0b579e;
+  --blue: #38bdf8;
+  --glass: rgba(255, 255, 255, 0.58);
+  --glass-line: rgba(12, 89, 148, 0.26);
+  --glass-hot: rgba(255, 255, 255, 0.76);
+  --texture-opacity: 0.22;
+  --app-bg:
+    radial-gradient(circle at 12% 18%, rgba(77, 171, 247, 0.44), transparent 32%),
+    radial-gradient(circle at 86% 12%, rgba(186, 230, 253, 0.84), transparent 36%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(225, 245, 255, 0.74) 44%, #ccecff 100%);
+}
+
+.theme-aurora {
+  --red: #ff4fd8;
+  --red-dark: #9a37ff;
+  --blue: #7c5cff;
+  --glass-line: rgba(255, 155, 232, 0.28);
+  --texture-opacity: 0.5;
+  --app-bg:
+    radial-gradient(circle at 16% 22%, rgba(255, 79, 216, 0.32), transparent 32%),
+    radial-gradient(circle at 84% 14%, rgba(124, 92, 255, 0.28), transparent 34%),
+    linear-gradient(140deg, #19071e 0%, #080616 48%, #020107 100%);
+}
+
+.theme-green-home {
+  --red: #35d07f;
+  --red-dark: #13844d;
+  --blue: #c8ff8c;
+  --glass-line: rgba(114, 255, 174, 0.25);
+  --texture-opacity: 0.44;
+  --app-bg:
+    radial-gradient(circle at 12% 24%, rgba(53, 208, 127, 0.28), transparent 34%),
+    radial-gradient(circle at 88% 10%, rgba(200, 255, 140, 0.18), transparent 32%),
+    linear-gradient(145deg, #07150d 0%, #0f1812 48%, #020604 100%);
+}
+
+.theme-graphite {
+  --red: #f4b860;
+  --red-dark: #a76b1d;
+  --blue: #d8dde4;
+  --glass-line: rgba(244, 184, 96, 0.24);
+  --texture-opacity: 0.46;
+  --app-bg:
+    radial-gradient(circle at 18% 18%, rgba(244, 184, 96, 0.22), transparent 32%),
+    radial-gradient(circle at 86% 14%, rgba(216, 221, 228, 0.14), transparent 34%),
+    linear-gradient(135deg, #16191e 0%, #090b0f 46%, #020304 100%);
+}
+
+.theme-blue-light .profile-copy h1,
+.theme-blue-light .inside-hero h1,
+.theme-blue-light .household-hero h1,
+.theme-blue-light .welcome-household-card h1 {
+  color: #082033;
+  text-shadow: 0 18px 62px rgba(32, 108, 168, 0.18);
+}
+
+.theme-blue-light .inside-hero span,
+.theme-blue-light .profile-copy p,
+.theme-blue-light .household-hero p:not(.eyebrow),
+.theme-blue-light .eyebrow {
+  color: rgba(8, 32, 51, 0.66);
+}
+
+.theme-blue-light .brand-button,
+.theme-blue-light .icon-glass-button,
+.theme-blue-light .household-pill,
+.theme-blue-light .secondary-mini-button,
+.theme-blue-light .switch-profile-button,
+.theme-blue-light .stream-profile,
+.theme-blue-light .inside-panel,
+.theme-blue-light .household-card {
+  background: rgba(255, 255, 255, 0.52);
+  border-color: rgba(25, 92, 145, 0.22);
+  color: #082033;
+}
+
+.theme-blue-light .inside-row,
+.theme-blue-light .calendar-day,
+.theme-blue-light .calendar-agenda-row {
+  background: rgba(8, 32, 51, 0.075);
+  color: #082033;
+}
+
+.theme-blue-light .row-label,
+.theme-blue-light .stream-profile strong,
+.theme-blue-light .inside-panel h2,
+.theme-blue-light .household-pill span,
+.theme-blue-light .household-pill strong {
+  color: #082033;
 }
 
 ::view-transition-group(app-screen) {
@@ -241,8 +362,7 @@ html[data-transition="back"]::view-transition-new(app-screen) {
   text-shadow: 0 18px 62px rgba(0, 0, 0, 0.56);
 }
 
-.household-hero p:not(.eyebrow),
-.invite-note {
+.household-hero p:not(.eyebrow) {
   color: var(--muted);
   font-family: "Trebuchet MS", Verdana, sans-serif;
   line-height: 1.45;
@@ -534,6 +654,69 @@ html[data-transition="back"]::view-transition-new(app-screen) {
   padding: 3px 0;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.theme-choice-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+}
+
+.theme-choice {
+  align-items: start;
+  background: rgba(255, 255, 255, 0.075);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  cursor: pointer;
+  display: grid;
+  gap: 7px;
+  min-height: 104px;
+  padding: 12px;
+  position: relative;
+  text-align: left;
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.theme-choice input {
+  opacity: 0;
+  position: absolute;
+}
+
+.theme-choice:has(input:checked) {
+  border-color: var(--red);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--red) 72%, transparent), 0 18px 44px rgba(0, 0, 0, 0.22);
+}
+
+.theme-choice:hover,
+.theme-choice:focus-within {
+  border-color: rgba(255, 255, 255, 0.34);
+  transform: translateY(-2px);
+}
+
+.theme-swatch-row {
+  display: flex;
+  gap: 6px;
+}
+
+.theme-swatch-row i {
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 999px;
+  display: block;
+  height: 18px;
+  width: 18px;
+}
+
+.theme-choice strong {
+  color: #fff;
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-size: 0.95rem;
+}
+
+.theme-choice small {
+  color: rgba(255, 255, 255, 0.58);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  line-height: 1.25;
 }
 
 .release-modal {
@@ -1081,6 +1264,7 @@ html[data-transition="back"]::view-transition-new(app-screen) {
 
 .modal-backdrop {
   align-items: center;
+  animation: modalBackdropIn 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
   backdrop-filter: blur(18px);
   background: rgba(0, 0, 0, 0.46);
   display: flex;
@@ -1092,6 +1276,7 @@ html[data-transition="back"]::view-transition-new(app-screen) {
 }
 
 .dark-modal {
+  animation: modalPanelIn 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
   backdrop-filter: blur(26px) saturate(120%);
   background: rgba(18, 18, 18, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1106,7 +1291,17 @@ html[data-transition="back"]::view-transition-new(app-screen) {
   padding: 28px;
   position: relative;
   text-align: center;
+  transform-origin: 50% 56%;
   width: 100%;
+}
+
+.modal-backdrop-closing {
+  animation: modalBackdropOut 220ms ease both;
+  pointer-events: none;
+}
+
+.modal-backdrop-closing .dark-modal {
+  animation: modalPanelOut 220ms cubic-bezier(0.7, 0, 0.84, 0) both;
 }
 
 .close-button {
@@ -2436,6 +2631,63 @@ html[data-transition="back"]::view-transition-new(app-screen) {
   }
 }
 
+@keyframes modalBackdropIn {
+  0% {
+    backdrop-filter: blur(0);
+    background: rgba(0, 0, 0, 0);
+    opacity: 0;
+  }
+  100% {
+    backdrop-filter: blur(18px);
+    background: rgba(0, 0, 0, 0.46);
+    opacity: 1;
+  }
+}
+
+@keyframes modalPanelIn {
+  0% {
+    filter: blur(18px);
+    opacity: 0;
+    transform: translateY(22px) scale(0.94);
+  }
+  62% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(-3px) scale(1.012);
+  }
+  100% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes modalBackdropOut {
+  0% {
+    backdrop-filter: blur(18px);
+    background: rgba(0, 0, 0, 0.46);
+    opacity: 1;
+  }
+  100% {
+    backdrop-filter: blur(0);
+    background: rgba(0, 0, 0, 0);
+    opacity: 0;
+  }
+}
+
+@keyframes modalPanelOut {
+  0% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    filter: blur(12px);
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(app-screen),
   ::view-transition-old(app-screen),
@@ -2458,9 +2710,17 @@ html[data-transition="back"]::view-transition-new(app-screen) {
   .welcome-household-screen::before,
   .welcome-household-orbit,
   .welcome-household-card,
-  .welcome-household-loader span {
+  .welcome-household-loader span,
+  .modal-backdrop,
+  .dark-modal {
     animation-duration: 1ms;
     animation-delay: 0ms;
+  }
+}
+
+@media (max-width: 520px) {
+  .theme-choice-grid {
+    grid-template-columns: 1fr;
   }
 }
 
