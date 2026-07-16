@@ -165,6 +165,7 @@ const LAST_RESIDENT_KEY = "jtag-last-resident-id-v2";
 const CALENDAR_VIEW_KEY = "jtag-calendar-view-mode";
 const RECENT_HOUSEHOLDS_KEY = "jtag-recent-households-v1";
 const LAST_AUTH_EMAIL_KEY = "jtag-last-auth-email-v1";
+const DISMISSED_NOTIFICATIONS_KEY = "jtag-dismissed-notifications-v1";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
@@ -185,6 +186,13 @@ const WELCOME_HOUSEHOLD_MS = 3600;
 type CalendarViewMode = "calendar" | "list";
 type ReminderIcon = "general" | "shopping" | "lightbulb" | "medicine" | "home" | "document";
 type ProfileThemeId = "default" | "blue-light" | "aurora" | "green-home" | "graphite";
+type AppNotification = {
+  id: string;
+  kind: "reminder" | "birthday";
+  title: string;
+  body: string;
+  action: "reminderCalendar" | "birthdayCalendar";
+};
 type AvatarOption = {
   id: string;
   label: string;
@@ -911,6 +919,19 @@ function saveCalendarView(kind: "reminder" | "birthday", mode: CalendarViewMode)
   window.localStorage.setItem(`${CALENDAR_VIEW_KEY}-${kind}`, mode);
 }
 
+function loadDismissedNotifications() {
+  try {
+    const stored = window.localStorage.getItem(DISMISSED_NOTIFICATIONS_KEY);
+    return stored ? (JSON.parse(stored) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDismissedNotifications(ids: string[]) {
+  window.localStorage.setItem(DISMISSED_NOTIFICATIONS_KEY, JSON.stringify(ids));
+}
+
 function runScreenTransition(kind: "enter" | "back" | "soft", update: () => void) {
   if (typeof document === "undefined" || !("startViewTransition" in document)) {
     update();
@@ -932,6 +953,12 @@ function startOfToday() {
   const date = new Date();
   date.setHours(0, 0, 0, 0);
   return date;
+}
+
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
 }
 
 function formatDateLabel(value: string) {
@@ -1389,6 +1416,7 @@ export default function HomePage() {
   const [showEmergency, setShowEmergency] = useState(false);
   const [showHouseholdInvite, setShowHouseholdInvite] = useState(false);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState("");
   const [authTransitionActive, setAuthTransitionActive] = useState(false);
   const [welcomeHouseholdName, setWelcomeHouseholdName] = useState("");
@@ -1397,6 +1425,7 @@ export default function HomePage() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [todayWeather, setTodayWeather] = useState<TodayWeather>(() => getDefaultWeather());
+  const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
   const [profileModal, setProfileModal] = useState<
     "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | null
   >(null);
@@ -1421,6 +1450,7 @@ export default function HomePage() {
     const shouldStartFromInvite = Boolean(inviteCode);
 
     setRecentHouseholds(loadRecentHouseholds());
+    setDismissedNotifications(loadDismissedNotifications());
     setAppState(shouldStartFromInvite ? defaultState : storedState);
     if (shouldStartFromInvite) {
       setPendingInviteCode(inviteCode);
@@ -1658,14 +1688,62 @@ export default function HomePage() {
       next: upcoming[0],
     };
   }, [birthdayPreview]);
+  const notifications = useMemo(() => {
+    const today = startOfToday();
+    const reminderNotifications = activeReminders.flatMap((reminder) => {
+        const parsedDate = parseReminderDate(reminder.date);
+
+        if (!parsedDate) {
+          return [];
+        }
+
+        const distance = daysBetween(today, parsedDate);
+        if (distance > 0) {
+          return [];
+        }
+
+        return [{
+          id: `reminder-${reminder.id}-${distance < 0 ? "overdue" : "today"}`,
+          kind: "reminder" as const,
+          title: distance < 0 ? "Lembrete atrasado" : "Lembrete para hoje",
+          body: reminder.text,
+          action: "reminderCalendar" as const,
+        }];
+      });
+    const birthdayNotifications = birthdayPreview
+      .filter((birthday) => birthday.nextDistance >= 0 && birthday.nextDistance <= 7)
+      .map((birthday) => ({
+        id: `birthday-${birthday.id}-${new Date().getFullYear()}`,
+        kind: "birthday" as const,
+        title: birthday.nextDistance === 0 ? "Aniversário hoje" : "Aniversário próximo",
+        body:
+          birthday.nextDistance === 0
+            ? `${birthday.name} faz aniversário hoje`
+            : `${birthday.name} em ${birthday.nextDistance}d`,
+        action: "birthdayCalendar" as const,
+      }));
+
+    return [...reminderNotifications, ...birthdayNotifications].filter(
+      (notification) => !dismissedNotifications.includes(notification.id),
+    );
+  }, [activeReminders, birthdayPreview, dismissedNotifications]);
   const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
   const hasLocalHouseholdAccess = Boolean(appState.household);
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
 
-  function openOverdueReminders() {
-    saveCalendarView("reminder", "list");
-    setProfileModal("reminderCalendar");
+  function handleOpenNotification(notification: AppNotification) {
+    saveCalendarView(notification.kind, "list");
+    setShowNotifications(false);
+    setProfileModal(notification.action);
+  }
+
+  function handleDismissNotification(notificationId: string) {
+    setDismissedNotifications((current) => {
+      const next = Array.from(new Set([...current, notificationId]));
+      saveDismissedNotifications(next);
+      return next;
+    });
   }
 
   async function refreshAccountHouseholds(userId = authUser?.id) {
@@ -2671,8 +2749,14 @@ export default function HomePage() {
               >
                 <Pencil size={20} />
               </button>
-              <button className="icon-glass-button" type="button" onClick={() => void handleSignOut()} aria-label="Sair da conta">
-                <X size={20} />
+              <button
+                className={`icon-glass-button notification-button ${notifications.length ? "has-notifications" : ""}`}
+                type="button"
+                onClick={() => setShowNotifications(true)}
+                aria-label="Ver notificações"
+              >
+                <Bell size={20} />
+                {notifications.length ? <span>{notifications.length}</span> : null}
               </button>
             </div>
           </div>
@@ -2746,13 +2830,6 @@ export default function HomePage() {
               <em>contatos prontos</em>
             </button>
           </div>
-
-          {dashboardReminders.overdue ? (
-            <button className="dashboard-alert" type="button" onClick={openOverdueReminders}>
-              <Bell size={18} />
-              <span>{dashboardReminders.overdue} lembrete{dashboardReminders.overdue > 1 ? "s" : ""} atrasado{dashboardReminders.overdue > 1 ? "s" : ""}</span>
-            </button>
-          ) : null}
 
           <div className="inside-grid">
             <InfoPanel
@@ -2863,11 +2940,11 @@ export default function HomePage() {
             title="Calendário de aniversários"
           />
         ) : null}
-        {showHouseholdInvite ? (
-          <HouseholdInviteModal
-            activeResidentId={activeResident.id}
-            canManageMembers={appState.household.ownerResidentId === activeResident.id}
-            household={appState.household}
+      {showHouseholdInvite ? (
+        <HouseholdInviteModal
+          activeResidentId={activeResident.id}
+          canManageMembers={appState.household.ownerResidentId === activeResident.id}
+          household={appState.household}
             residents={appState.residents}
             onClose={() => setShowHouseholdInvite(false)}
             onCopy={copyHouseholdInvite}
@@ -2981,6 +3058,14 @@ export default function HomePage() {
           onShare={shareHouseholdInvite}
         />
       ) : null}
+      {showNotifications ? (
+        <NotificationsModal
+          notifications={notifications}
+          onClose={() => setShowNotifications(false)}
+          onDismiss={handleDismissNotification}
+          onOpen={handleOpenNotification}
+        />
+      ) : null}
       {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
     </main>
   );
@@ -3014,6 +3099,66 @@ function WeatherWidget({ weather }: { weather: TodayWeather }) {
         <strong>{weather.description}</strong>
         <em>{weather.season}</em>
       </div>
+    </div>
+  );
+}
+
+function NotificationsModal({
+  notifications,
+  onClose,
+  onDismiss,
+  onOpen,
+}: {
+  notifications: AppNotification[];
+  onClose: () => void;
+  onDismiss: (notificationId: string) => void;
+  onOpen: (notification: AppNotification) => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+
+  return (
+    <div className={backdropClassName}>
+      <section className="dark-modal notifications-modal" role="dialog" aria-modal="true">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <span className="modal-icon notification-modal-icon">
+          <Bell size={30} />
+        </span>
+        <p className="eyebrow">Central</p>
+        <h2>Notificações</h2>
+        <div className="notification-list">
+          {notifications.length ? (
+            notifications.map((notification) => (
+              <article className="notification-row" key={notification.id}>
+                <button className="notification-content" type="button" onClick={() => onOpen(notification)}>
+                  <span className={`notification-kind notification-kind-${notification.kind}`}>
+                    {notification.kind === "birthday" ? <Cake size={17} /> : <Bell size={17} />}
+                  </span>
+                  <span>
+                    <strong>{notification.title}</strong>
+                    <small>{notification.body}</small>
+                  </span>
+                </button>
+                <button
+                  className="notification-dismiss"
+                  type="button"
+                  onClick={() => onDismiss(notification.id)}
+                  aria-label="Excluir notificação"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </article>
+            ))
+          ) : (
+            <div className="notification-empty">
+              <Bell size={22} />
+              <strong>Nada novo por aqui</strong>
+              <span>Aniversários próximos e lembretes importantes vão aparecer neste sino.</span>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
@@ -4131,12 +4276,15 @@ function CalendarModal({
           .filter((item) => daysBetween(today, item.parsedDate) < 0)
           .sort((a, b) => a.parsedDate.getTime() - b.parsedDate.getTime())
       : [];
-  const agendaItems = kind === "reminder"
-    ? [
-        ...overdueReminderItems,
-        ...monthItems.filter((item) => !overdueReminderItems.some((overdueItem) => overdueItem.id === item.id)),
-      ]
-    : monthItems;
+  const timelineStart = kind === "reminder" ? addDays(startOfMonth(currentMonth), -7) : startOfMonth(currentMonth);
+  const timelineDayCount = kind === "reminder" ? 98 : 92;
+  const timelineDays = Array.from({ length: timelineDayCount }, (_, index) => addDays(timelineStart, index));
+  const timelineSections = timelineDays.map((date) => ({
+    date,
+    items: calendarItems.filter(
+      (item) => sameCalendarDay(item.parsedDate, date) && !(kind === "reminder" && daysBetween(today, item.parsedDate) < 0),
+    ),
+  }));
 
   function getItemsForDay(day: Date) {
     return calendarItems.filter((item) => sameCalendarDay(item.parsedDate, day));
@@ -4291,34 +4439,81 @@ function CalendarModal({
               <p className="calendar-mode-note">
                 Arraste para trocar de mês. {kind === "reminder" ? "Atrasados ficam no topo." : "Veja os aniversários do mês."}
               </p>
-            <div className="calendar-agenda calendar-agenda-list-mode">
-              {agendaItems.length ? (
-                agendaItems.map((item) => {
-                  const isOverdueReminder = kind === "reminder" && daysBetween(today, item.parsedDate) < 0;
-
-                  return (
+              {overdueReminderItems.length ? (
+                <div className="calendar-timeline-overdue">
+                  <span>Lembretes atrasados</span>
+                  {overdueReminderItems.map((item) => (
                     <button
-                      className={`calendar-agenda-row ${isOverdueReminder ? "calendar-agenda-overdue" : ""}`}
-                      key={item.id}
+                      className="calendar-agenda-row calendar-agenda-overdue"
+                      key={`overdue-${item.id}`}
                       type="button"
                       onClick={() => setSelectedCalendarItem(item)}
                     >
                       <span className="inside-row-main">
-                        {kind === "birthday" ? (
-                          <Cake size={16} />
-                        ) : (
-                          <ReminderIconBadge icon={(item as Reminder).icon} />
-                        )}
+                        <ReminderIconBadge icon={(item as Reminder).icon} />
                         <span className="row-label">{"text" in item ? item.text : item.name}</span>
                       </span>
-                      <small>{isOverdueReminder ? "Atrasado" : kind === "birthday" ? formatBirthdayValue(item.date) : formatDateLabel(item.date)}</small>
+                      <small>Atrasado</small>
                     </button>
+                  ))}
+                </div>
+              ) : null}
+              <div className="calendar-timeline calendar-agenda-list-mode">
+                {timelineSections.map((section) => {
+                  const distance = daysBetween(today, section.date);
+                  const dayLabel =
+                    distance === 0
+                      ? "Hoje"
+                      : distance === 1
+                        ? "Amanhã"
+                        : section.date.toLocaleDateString("pt-BR", {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "short",
+                          });
+                  const isMutedDay = section.items.length === 0;
+
+                  return (
+                    <section
+                      className={`calendar-timeline-day ${isMutedDay ? "calendar-timeline-empty" : ""}`}
+                      key={section.date.toISOString()}
+                    >
+                      <div className="calendar-timeline-date">
+                        <strong>{dayLabel}</strong>
+                        <span>{section.date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</span>
+                      </div>
+                      <div className="calendar-timeline-items">
+                        {section.items.length ? (
+                          section.items.map((item) => {
+                            const isOverdueReminder = kind === "reminder" && daysBetween(today, item.parsedDate) < 0;
+
+                            return (
+                              <button
+                                className={`calendar-agenda-row ${isOverdueReminder ? "calendar-agenda-overdue" : ""}`}
+                                key={item.id}
+                                type="button"
+                                onClick={() => setSelectedCalendarItem(item)}
+                              >
+                                <span className="inside-row-main">
+                                  {kind === "birthday" ? (
+                                    <Cake size={16} />
+                                  ) : (
+                                    <ReminderIconBadge icon={(item as Reminder).icon} />
+                                  )}
+                                  <span className="row-label">{"text" in item ? item.text : item.name}</span>
+                                </span>
+                                <small>{isOverdueReminder ? "Atrasado" : kind === "birthday" ? formatBirthdayValue(item.date) : formatDateLabel(item.date)}</small>
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <span className="calendar-empty-day">Sem itens</span>
+                        )}
+                      </div>
+                    </section>
                   );
-                })
-              ) : (
-                <p>{kind === "reminder" ? "Nenhum lembrete cadastrado." : "Nenhum item neste mês."}</p>
-              )}
-            </div>
+                })}
+              </div>
             </div>
           ) : null}
         </div>
