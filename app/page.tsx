@@ -148,7 +148,16 @@ const LAST_AUTH_EMAIL_KEY = "jtag-last-auth-email-v1";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
-  SUPABASE_URL && SUPABASE_KEY ? createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  SUPABASE_URL && SUPABASE_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_KEY, {
+        auth: {
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          persistSession: true,
+          storageKey: "jtag-auth-session-v1",
+        },
+      })
+    : null;
 
 type CalendarViewMode = "calendar" | "list";
 type ReminderIcon = "general" | "shopping" | "lightbulb" | "medicine" | "home" | "document";
@@ -1176,6 +1185,7 @@ export default function HomePage() {
   const [showHouseholdInvite, setShowHouseholdInvite] = useState(false);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState("");
+  const [authTransitionActive, setAuthTransitionActive] = useState(false);
   const [welcomeHouseholdName, setWelcomeHouseholdName] = useState("");
   const [recentHouseholds, setRecentHouseholds] = useState<RecentHousehold[]>([]);
   const [accountHouseholds, setAccountHouseholds] = useState<RecentHousehold[]>([]);
@@ -1266,6 +1276,9 @@ export default function HomePage() {
       }
       if (inviteCode) {
         setPendingInviteCode(inviteCode);
+      }
+      if (user && remoteState.household) {
+        enterHouseholdWithWelcome(remoteState);
       }
     }
 
@@ -1365,6 +1378,7 @@ export default function HomePage() {
     setRecentHouseholds(loadRecentHouseholds());
     setPendingInviteCode("");
     setSelectedResident(null);
+    setAuthTransitionActive(false);
     setWelcomeHouseholdName(remoteState.household.name);
 
     welcomeTimerRef.current = window.setTimeout(() => {
@@ -1376,7 +1390,7 @@ export default function HomePage() {
         }
         setWelcomeHouseholdName("");
       });
-    }, 1650);
+    }, 2850);
   }
 
   async function handleAuthSubmit(mode: "sign-in" | "sign-up", email: string, password: string) {
@@ -1384,6 +1398,8 @@ export default function HomePage() {
       window.alert("Supabase não está configurado neste ambiente.");
       return;
     }
+
+    setAuthTransitionActive(true);
 
     const credentials = {
       email: email.trim(),
@@ -1395,6 +1411,7 @@ export default function HomePage() {
         : await supabase.auth.signInWithPassword(credentials);
 
     if (error) {
+      setAuthTransitionActive(false);
       window.alert(error.message);
       return;
     }
@@ -1415,10 +1432,13 @@ export default function HomePage() {
 
       if (remoteState?.household) {
         enterHouseholdWithWelcome(remoteState);
+      } else {
+        setAuthTransitionActive(false);
       }
     }
 
     if (mode === "sign-up" && !data.session) {
+      setAuthTransitionActive(false);
       window.alert("Conta criada. Se o Supabase pedir confirmação, confirme o e-mail antes de entrar.");
     }
   }
@@ -2217,6 +2237,14 @@ export default function HomePage() {
     );
   }
 
+  if (authTransitionActive) {
+    return (
+      <main className="screen-shell">
+        <WelcomeHouseholdScreen preparing />
+      </main>
+    );
+  }
+
   if (!authUser) {
     return (
       <main className="screen-shell">
@@ -2484,7 +2512,6 @@ export default function HomePage() {
         </header>
 
         <div className="profile-copy">
-          <p className="eyebrow">NFC conectado</p>
           <h1>Quem esta usando?</h1>
         </div>
 
@@ -2709,9 +2736,17 @@ function AuthGate({
   );
 }
 
-function WelcomeHouseholdScreen({ householdName }: { householdName: string }) {
+function WelcomeHouseholdScreen({
+  householdName,
+  preparing = false,
+}: {
+  householdName?: string;
+  preparing?: boolean;
+}) {
+  const title = preparing ? "Preparando sua casa" : `Bem-vindo à casa ${householdName}`;
+
   return (
-    <section className="welcome-household-screen" aria-label={`Bem-vindo à casa ${householdName}`}>
+    <section className="welcome-household-screen" aria-label={title}>
       <div className="welcome-household-orbit" aria-hidden="true">
         <span />
         <span />
@@ -2721,8 +2756,8 @@ function WelcomeHouseholdScreen({ householdName }: { householdName: string }) {
         <div className="welcome-household-logo">
           <LogoMark size={34} />
         </div>
-        <p className="eyebrow">Acesso liberado</p>
-        <h1>Bem-vindo à casa {householdName}</h1>
+        <p className="eyebrow">{preparing ? "Entrando" : "Acesso liberado"}</p>
+        <h1>{title}</h1>
         <div className="welcome-household-loader" aria-hidden="true">
           <span />
         </div>
@@ -2780,7 +2815,7 @@ function HouseholdSetup({
     hasInviteLink && step === 3
       ? "O convite já trouxe o código do lar. Crie seu perfil para entrar."
       : step === 1
-      ? "Escolha uma opção para preparar o acesso por NFC."
+      ? "Escolha uma opção para preparar o acesso."
       : step === 2
         ? isCreateMode
           ? "Esse nome aparece para todos os moradores."
