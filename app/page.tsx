@@ -355,10 +355,13 @@ function getScreenShellClass(theme?: string | null) {
 }
 
 const releaseNotes = {
-  version: "v0.5",
+  version: "v0.6",
   title: "Novidades do J-tag",
-  date: "16/07/2026",
+  date: "17/07/2026",
   items: [
+    "Lembretes agora podem ser editados depois de criados.",
+    "Lembretes recorrentes podem repetir diariamente, semanalmente, mensalmente ou anualmente.",
+    "Uma nova barra de arraste permite concluir lembretes e avançar automaticamente os recorrentes.",
     "Cada perfil agora pode escolher entre 5 temas visuais, incluindo o padrão J-tag e um tema claro azul.",
     "A troca de tema tem preview com view transition antes de salvar no perfil.",
     "Login fica salvo no aparelho e pode ir direto para a tela de boas-vindas quando a sessão existir.",
@@ -4866,7 +4869,10 @@ function CompleteReminderSlider({ onComplete }: { onComplete: () => void }) {
 
   return (
     <div className="complete-reminder-slider" style={{ "--slide-progress": `${value}%` } as CSSProperties}>
-      <span>Arraste para concluir</span>
+      <span className="complete-slider-knob" aria-hidden="true">
+        {value >= 85 ? <Check size={18} /> : <ChevronRight size={22} strokeWidth={3} />}
+      </span>
+      <span className="complete-slider-label">Arraste para concluir</span>
       <input
         aria-label="Arraste para marcar o lembrete como concluído"
         max="100"
@@ -4881,7 +4887,7 @@ function CompleteReminderSlider({ onComplete }: { onComplete: () => void }) {
         type="range"
         value={value}
       />
-      <Check aria-hidden="true" size={18} />
+      <Check className="complete-slider-finish" aria-hidden="true" size={18} />
     </div>
   );
 }

@@ -3345,18 +3345,37 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   width: 100%;
 }
 
-.complete-reminder-slider > span {
+.complete-slider-label {
   color: rgba(255, 255, 255, 0.88);
   font-size: 0.78rem;
   font-weight: 900;
-  padding-left: 18px;
+  padding-left: 58px;
   pointer-events: none;
 }
 
-.complete-reminder-slider > svg {
+.complete-slider-finish {
   color: #bff4d2;
   margin-right: 15px;
   pointer-events: none;
+}
+
+.complete-slider-knob {
+  align-items: center;
+  background: linear-gradient(135deg, #6ee7a2, #27ae60);
+  border: 2px solid rgba(255, 255, 255, 0.82);
+  border-radius: 50%;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.32);
+  color: #0a4724;
+  display: inline-flex;
+  height: 40px;
+  justify-content: center;
+  left: clamp(4px, calc(var(--slide-progress) - 20px), calc(100% - 44px));
+  pointer-events: none;
+  position: absolute;
+  top: 4px;
+  transition: left 80ms linear;
+  width: 40px;
+  z-index: 1;
 }
 
 .complete-reminder-slider input {
@@ -3367,6 +3386,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   opacity: 0;
   position: absolute;
   width: 100%;
+  z-index: 2;
 }
 
 .complete-reminder-slider input:active {
