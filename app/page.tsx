@@ -3484,12 +3484,6 @@ function LocationMapModal({
           <MapPin size={16} />
           <span>{addressLabel}</span>
           <span className="walking-person" aria-hidden="true">
-            <span className="walking-steps">
-              <i />
-              <i />
-              <i />
-              <i />
-            </span>
             <span className="walker-head" />
             <span className="walker-body" />
             <span className="walker-arm walker-arm-left" />

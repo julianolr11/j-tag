@@ -1806,8 +1806,8 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   color: rgba(255, 255, 255, 0.82);
   display: grid;
   gap: 10px;
-  grid-template-columns: 18px minmax(0, 1fr) 76px;
-  min-height: 76px;
+  grid-template-columns: 18px minmax(0, 1fr) 38px;
+  min-height: 58px;
   overflow: hidden;
   padding: 10px 12px;
   position: relative;
@@ -1823,17 +1823,16 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 .walking-person {
   color: rgba(255, 255, 255, 0.88);
   display: inline-block;
-  height: 58px;
+  height: 29px;
   justify-self: end;
   position: relative;
-  width: 70px;
+  width: 35px;
 }
 
 .walker-head,
 .walker-body,
 .walker-arm,
-.walker-leg,
-.walking-steps i {
+.walker-leg {
   background: currentColor;
   position: absolute;
 }
@@ -1841,88 +1840,53 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 .walker-head {
   animation: walkerBob 780ms ease-in-out infinite;
   border-radius: 999px;
-  height: 12px;
-  left: 35px;
-  top: 5px;
-  width: 12px;
+  height: 6px;
+  left: 17px;
+  top: 3px;
+  width: 6px;
 }
 
 .walker-body {
   animation: walkerBob 780ms ease-in-out infinite;
   border-radius: 999px;
-  height: 24px;
-  left: 39px;
-  top: 18px;
+  height: 12px;
+  left: 19px;
+  top: 9px;
   transform: rotate(8deg);
   transform-origin: top center;
-  width: 4px;
+  width: 2px;
 }
 
 .walker-arm,
 .walker-leg {
   border-radius: 999px;
-  height: 22px;
+  height: 11px;
   transform-origin: top center;
-  width: 4px;
+  width: 2px;
 }
 
 .walker-arm-left {
   animation: walkerArmLeft 780ms ease-in-out infinite;
-  left: 38px;
-  top: 21px;
+  left: 19px;
+  top: 11px;
 }
 
 .walker-arm-right {
   animation: walkerArmRight 780ms ease-in-out infinite;
-  left: 42px;
-  top: 21px;
+  left: 21px;
+  top: 11px;
 }
 
 .walker-leg-left {
   animation: walkerLegLeft 780ms ease-in-out infinite;
-  left: 39px;
-  top: 39px;
+  left: 19px;
+  top: 20px;
 }
 
 .walker-leg-right {
   animation: walkerLegRight 780ms ease-in-out infinite;
-  left: 42px;
-  top: 39px;
-}
-
-.walking-steps i {
-  animation: walkingStep 1.55s linear infinite;
-  border-radius: 55% 45% 60% 40%;
-  height: 8px;
-  opacity: 0;
-  transform: rotate(-18deg);
-  width: 15px;
-}
-
-.walking-steps i:nth-child(1) {
-  animation-delay: 0ms;
-  left: 4px;
-  top: 42px;
-}
-
-.walking-steps i:nth-child(2) {
-  animation-delay: 360ms;
-  left: 15px;
-  top: 30px;
-  transform: rotate(18deg);
-}
-
-.walking-steps i:nth-child(3) {
-  animation-delay: 720ms;
-  left: 0;
-  top: 18px;
-}
-
-.walking-steps i:nth-child(4) {
-  animation-delay: 1080ms;
-  left: 13px;
-  top: 8px;
-  transform: rotate(18deg);
+  left: 21px;
+  top: 20px;
 }
 
 .location-map-link {
@@ -3308,22 +3272,6 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   }
 }
 
-@keyframes walkingStep {
-  0% {
-    opacity: 0;
-    transform: translateX(26px) scale(0.7) rotate(-18deg);
-  }
-
-  18% {
-    opacity: 0.82;
-  }
-
-  100% {
-    opacity: 0;
-    transform: translateX(-10px) scale(1) rotate(-18deg);
-  }
-}
-
 @keyframes screenOldEnter {
   0% {
     filter: blur(0);
@@ -3883,12 +3831,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   }
 
   .location-address-card {
-    grid-template-columns: 18px minmax(0, 1fr) 58px;
-  }
-
-  .walking-person {
-    transform: scale(0.9);
-    transform-origin: center right;
+    grid-template-columns: 18px minmax(0, 1fr) 36px;
   }
 }
 
