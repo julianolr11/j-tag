@@ -24,7 +24,9 @@ import {
   Lightbulb,
   LockKeyhole,
   MapPin,
+  Maximize2,
   Mic,
+  Minimize2,
   Moon,
   Navigation,
   Pencil,
@@ -1639,6 +1641,7 @@ export default function HomePage() {
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState("");
   const pendingVoiceHandlerRef = useRef<((transcript: string) => void) | null>(null);
   const activeRecognitionRef = useRef<SpeechRecognitionInstance | null>(null);
@@ -1863,6 +1866,17 @@ export default function HomePage() {
     return () => {
       document.removeEventListener("pointerdown", handleGlobalPointerDown, true);
     };
+  }, []);
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    handleFullscreenChange();
+
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
   const activeReminders = useMemo(() => {
@@ -3010,6 +3024,21 @@ export default function HomePage() {
     startVoiceRecognition(runVoiceCommand);
   }
 
+  async function handleToggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+        return;
+      }
+
+      await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+    } catch {
+      setVoiceMessage(
+        "Seu navegador não permite tela cheia aqui. No iPhone, use Compartilhar e Adicionar à Tela de Início.",
+      );
+    }
+  }
+
   if (authLoading) {
     return (
       <main className={screenShellClassName}>
@@ -3094,6 +3123,15 @@ export default function HomePage() {
               <LogoMark size={24} />
             </button>
             <div className="topbar-actions">
+              <button
+                className={`icon-glass-button fullscreen-button ${isFullscreen ? "active" : ""}`}
+                type="button"
+                onClick={() => void handleToggleFullscreen()}
+                aria-label={isFullscreen ? "Sair da tela cheia" : "Abrir em tela cheia"}
+                title={isFullscreen ? "Sair da tela cheia" : "Tela cheia"}
+              >
+                {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+              </button>
               <button
                 className="icon-glass-button"
                 type="button"
@@ -5165,11 +5203,7 @@ function CalendarModal({
                       ? "Hoje"
                       : distance === 1
                         ? "Amanhã"
-                        : section.date.toLocaleDateString("pt-BR", {
-                            weekday: "short",
-                            day: "2-digit",
-                            month: "short",
-                          });
+                        : ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][section.date.getDay()];
                   const isMutedDay = section.items.length === 0;
 
                   return (

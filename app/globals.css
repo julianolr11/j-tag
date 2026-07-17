@@ -2676,6 +2676,32 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   margin-left: 0;
 }
 
+.fullscreen-button {
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+
+.fullscreen-button:hover,
+.fullscreen-button:focus-visible,
+.fullscreen-button.active {
+  background: rgba(47, 128, 237, 0.24);
+  border-color: rgba(126, 185, 255, 0.62);
+  outline: 0;
+}
+
+.fullscreen-button:active {
+  transform: scale(0.94);
+}
+
+html:fullscreen,
+html:fullscreen body {
+  background: #050505;
+  height: 100%;
+  overflow: auto;
+}
+
 .inside-list {
   display: grid;
   gap: 10px;
@@ -4147,6 +4173,15 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 }
 
 @media (max-width: 440px) {
+  .topbar-actions {
+    gap: 6px;
+  }
+
+  .topbar-actions .icon-glass-button {
+    height: 38px;
+    width: 38px;
+  }
+
   .dashboard-today-card {
     min-height: 104px;
   }
