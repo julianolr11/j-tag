@@ -351,7 +351,11 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   max-width: 1120px;
   min-height: 100vh;
   min-height: 100dvh;
-  padding: calc(34px + env(safe-area-inset-top)) 28px calc(118px + env(safe-area-inset-bottom));
+  padding:
+    calc(34px + env(safe-area-inset-top))
+    calc(28px + env(safe-area-inset-right))
+    calc(118px + env(safe-area-inset-bottom))
+    calc(28px + env(safe-area-inset-left));
 }
 
 .simple-header {
@@ -3976,7 +3980,11 @@ html:fullscreen body {
 
   .profile-stage,
   .inside-view {
-    padding: 24px 18px 104px;
+    padding:
+      calc(24px + env(safe-area-inset-top))
+      calc(18px + env(safe-area-inset-right))
+      calc(104px + env(safe-area-inset-bottom))
+      calc(18px + env(safe-area-inset-left));
   }
 
   .household-setup {
