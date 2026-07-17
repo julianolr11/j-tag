@@ -1,7 +1,6 @@
 ﻿"use client";
 
 import { createClient, type User } from "@supabase/supabase-js";
-import type { DivIcon, Map as LeafletMap, Marker as LeafletMarker } from "leaflet";
 import {
   Cake,
   Bell,
@@ -386,14 +385,6 @@ function avatarDataUrl(seed: string, colors: [string, string, string], shape: st
     </svg>`;
 
   return `data:image/svg+xml,${encodeURIComponent(svg.replace(/\s+/g, " ").trim())}`;
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 const avatarOptions: AvatarOption[] = [
@@ -3492,9 +3483,20 @@ function LocationMapModal({
         <div className="location-address-card">
           <MapPin size={16} />
           <span>{addressLabel}</span>
-        </div>
-        <div className="location-live-map" aria-label="Mapa real da localização compartilhada">
-          <LeafletLocationMap resident={resident} share={share} />
+          <span className="walking-person" aria-hidden="true">
+            <span className="walking-steps">
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="walker-head" />
+            <span className="walker-body" />
+            <span className="walker-arm walker-arm-left" />
+            <span className="walker-arm walker-arm-right" />
+            <span className="walker-leg walker-leg-left" />
+            <span className="walker-leg walker-leg-right" />
+          </span>
         </div>
         <p className="location-modal-copy">
           Compartilhado em {createdAt}
@@ -3506,75 +3508,6 @@ function LocationMapModal({
         </a>
       </section>
     </div>
-  );
-}
-
-function LeafletLocationMap({ resident, share }: { resident?: Resident; share: LocationShare }) {
-  const mapElementRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<LeafletMap | null>(null);
-  const markerRef = useRef<LeafletMarker | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function initializeMap() {
-      if (!mapElementRef.current || mapRef.current) {
-        return;
-      }
-
-      const L = await import("leaflet");
-
-      if (!isMounted || !mapElementRef.current) {
-        return;
-      }
-
-      const center: [number, number] = [share.latitude, share.longitude];
-      const markerHtml = resident?.photo
-        ? `<span class="leaflet-avatar-photo" style="background-image:url('${escapeHtml(resident.photo)}')"></span>`
-        : `<span class="leaflet-avatar-initial">${escapeHtml((resident?.name ?? "J").slice(0, 1).toUpperCase())}</span>`;
-      const icon: DivIcon = L.divIcon({
-        className: "leaflet-family-marker",
-        html: `<span class="leaflet-family-pulse"></span><span class="leaflet-family-avatar">${markerHtml}</span>`,
-        iconAnchor: [31, 31],
-        iconSize: [62, 62],
-      });
-
-      const map = L.map(mapElementRef.current, {
-        attributionControl: false,
-        dragging: true,
-        scrollWheelZoom: false,
-        zoomControl: false,
-      }).setView(center, 17);
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-      }).addTo(map);
-
-      markerRef.current = L.marker(center, { icon }).addTo(map);
-      mapRef.current = map;
-      window.setTimeout(() => map.invalidateSize(), 80);
-      window.setTimeout(() => map.invalidateSize(), 360);
-    }
-
-    void initializeMap();
-
-    return () => {
-      isMounted = false;
-      markerRef.current?.remove();
-      markerRef.current = null;
-      mapRef.current?.remove();
-      mapRef.current = null;
-    };
-  }, [resident?.name, resident?.photo, share.latitude, share.longitude]);
-
-  return (
-    <>
-      <div className="leaflet-location-map" ref={mapElementRef} />
-      <div className="leaflet-location-card">
-        <strong>{resident?.name ?? "Morador"}</strong>
-        <span>Localização ativa</span>
-      </div>
-    </>
   );
 }
 
