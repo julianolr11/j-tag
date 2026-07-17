@@ -888,6 +888,23 @@ async function insertRemoteReminder(householdId: string, reminder: Reminder) {
   return !error;
 }
 
+async function updateRemoteReminder(reminder: Reminder) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase
+    .from("reminders")
+    .update({
+      text: reminder.text,
+      date: reminder.date,
+      icon: reminder.icon ?? "general",
+    })
+    .eq("id", reminder.id);
+
+  return !error;
+}
+
 async function insertRemoteBirthday(householdId: string, birthday: Birthday) {
   if (!supabase) {
     return false;
@@ -1078,6 +1095,18 @@ function parseReminderDate(value: string) {
   }
 
   return null;
+}
+
+function formatReminderDateInput(value: string) {
+  const date = parseReminderDate(value);
+  if (!date) {
+    return "";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function parseBirthdayDate(value: string) {
@@ -1529,6 +1558,7 @@ export default function HomePage() {
   const [profileModal, setProfileModal] = useState<
     "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | null
   >(null);
+  const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
   const [newResidentPhoto, setNewResidentPhoto] = useState("");
   const [editResidentPhoto, setEditResidentPhoto] = useState("");
   const [themePreview, setThemePreview] = useState<ProfileThemeId | null>(null);
@@ -2311,6 +2341,44 @@ export default function HomePage() {
       reminders: [reminder, ...current.reminders],
     }));
     setProfileModal(null);
+  }
+
+  async function handleUpdateReminder(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingReminder) {
+      return;
+    }
+
+    const form = new FormData(event.currentTarget);
+    const text = String(form.get("text") ?? "").trim();
+    const date = String(form.get("date") ?? "").trim();
+    const icon = String(form.get("icon") ?? "general");
+
+    if (!text) {
+      return;
+    }
+
+    const updatedReminder: Reminder = {
+      ...editingReminder,
+      text,
+      date: date || "Hoje",
+      icon: isReminderIcon(icon) ? icon : "general",
+    };
+
+    await updateRemoteReminder(updatedReminder);
+    setAppState((current) => ({
+      ...current,
+      reminders: current.reminders.map((item) =>
+        item.id === updatedReminder.id ? updatedReminder : item,
+      ),
+    }));
+    setEditingReminder(null);
+    setProfileModal("reminderCalendar");
+  }
+
+  function handleEditReminder(reminder: Reminder) {
+    setEditingReminder(reminder);
+    setProfileModal("reminder");
   }
 
   async function handleAddBirthday(event: FormEvent<HTMLFormElement>) {
@@ -3096,7 +3164,14 @@ export default function HomePage() {
           />
         ) : null}
         {profileModal === "reminder" ? (
-          <ReminderModal onClose={() => setProfileModal(null)} onSubmit={handleAddReminder} />
+          <ReminderModal
+            reminder={editingReminder}
+            onClose={() => {
+              setEditingReminder(null);
+              setProfileModal(null);
+            }}
+            onSubmit={editingReminder ? handleUpdateReminder : handleAddReminder}
+          />
         ) : null}
         {profileModal === "birthday" ? (
           <BirthdayModal onClose={() => setProfileModal(null)} onSubmit={handleAddBirthday} />
@@ -3121,8 +3196,12 @@ export default function HomePage() {
             items={activeReminders}
             kind="reminder"
             onClose={() => setProfileModal(null)}
-            onCreate={() => setProfileModal("reminder")}
+            onCreate={() => {
+              setEditingReminder(null);
+              setProfileModal("reminder");
+            }}
             onDelete={(item) => void handleDeleteReminder(item as Reminder)}
+            onEdit={(item) => handleEditReminder(item as Reminder)}
             title="Calendário de lembretes"
           />
         ) : null}
@@ -3133,6 +3212,7 @@ export default function HomePage() {
             onClose={() => setProfileModal(null)}
             onCreate={() => setProfileModal("birthday")}
             onDelete={(item) => void handleDeleteBirthday(item as Birthday)}
+            onEdit={() => undefined}
             title="Calendário de aniversários"
           />
         ) : null}
@@ -4402,9 +4482,11 @@ function NewResidentModal({
 }
 
 function ReminderModal({
+  reminder,
   onClose,
   onSubmit,
 }: {
+  reminder?: Reminder | null;
   onClose: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -4420,19 +4502,30 @@ function ReminderModal({
           <Plus size={34} />
         </span>
         <div>
-          <p className="eyebrow">Novo item</p>
+          <p className="eyebrow">{reminder ? "Editar item" : "Novo item"}</p>
           <h2>Lembrete</h2>
         </div>
         <div className="field">
           <label htmlFor="reminder-text">Lembrete</label>
-          <input id="reminder-text" name="text" placeholder="Ex: Tomar remédio às 20h" required />
+          <input
+            defaultValue={reminder?.text ?? ""}
+            id="reminder-text"
+            name="text"
+            placeholder="Ex: Tomar remédio às 20h"
+            required
+          />
         </div>
         <div className="field">
           <span className="field-label">Icone</span>
           <div className="reminder-icon-grid">
             {reminderIconOptions.map(({ id, label, Icon }) => (
               <label className="reminder-icon-choice" key={id}>
-                <input defaultChecked={id === "general"} name="icon" type="radio" value={id} />
+                <input
+                  defaultChecked={id === (reminder?.icon ?? "general")}
+                  name="icon"
+                  type="radio"
+                  value={id}
+                />
                 <span>
                   <Icon size={18} />
                 </span>
@@ -4445,12 +4538,17 @@ function ReminderModal({
           <label htmlFor="reminder-date">Quando</label>
           <div className="date-field">
             <CalendarDays size={18} />
-            <input id="reminder-date" name="date" type="date" />
+            <input
+              defaultValue={reminder ? formatReminderDateInput(reminder.date) : ""}
+              id="reminder-date"
+              name="date"
+              type="date"
+            />
           </div>
         </div>
         <button className="primary-action" type="submit">
           <Check size={18} />
-          Salvar lembrete
+          {reminder ? "Salvar alterações" : "Salvar lembrete"}
         </button>
       </form>
     </div>
@@ -4613,6 +4711,7 @@ function CalendarModal({
   onClose,
   onCreate,
   onDelete,
+  onEdit,
   title,
 }: {
   items: Array<Reminder | Birthday>;
@@ -4620,6 +4719,7 @@ function CalendarModal({
   onClose: () => void;
   onCreate: () => void;
   onDelete: (item: Reminder | Birthday) => void;
+  onEdit: (item: Reminder | Birthday) => void;
   title: string;
 }) {
   const [viewMode, setViewMode] = useState<CalendarViewMode>(() => getSavedCalendarView(kind));
@@ -4715,6 +4815,15 @@ function CalendarModal({
     }
 
     onDelete(selectedCalendarItem);
+    setSelectedCalendarItem(null);
+  }
+
+  function handleEditSelectedItem() {
+    if (!selectedCalendarItem) {
+      return;
+    }
+
+    onEdit(selectedCalendarItem);
     setSelectedCalendarItem(null);
   }
 
@@ -4942,10 +5051,18 @@ function CalendarModal({
                     : formatDateLabel((selectedCalendarItem as Reminder).date)}
                 </small>
               </div>
-              <button className="calendar-delete-button" type="button" onClick={handleDeleteSelectedItem}>
-                <Trash2 size={17} />
-                Excluir
-              </button>
+              <div className="calendar-detail-actions">
+                {kind === "reminder" ? (
+                  <button className="calendar-edit-button" type="button" onClick={handleEditSelectedItem}>
+                    <Pencil size={17} />
+                    Editar
+                  </button>
+                ) : null}
+                <button className="calendar-delete-button" type="button" onClick={handleDeleteSelectedItem}>
+                  <Trash2 size={17} />
+                  Excluir
+                </button>
+              </div>
             </article>
           </div>
         ) : null}

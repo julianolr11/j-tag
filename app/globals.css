@@ -3224,12 +3224,16 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   font-family: "Trebuchet MS", Verdana, sans-serif;
 }
 
-.calendar-delete-button {
+.calendar-detail-actions {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+}
+
+.calendar-delete-button,
+.calendar-edit-button {
   align-items: center;
-  background: rgba(229, 9, 20, 0.14);
-  border: 1px solid rgba(229, 9, 20, 0.46);
   border-radius: 8px;
-  color: #ffb8bd;
   cursor: pointer;
   display: inline-flex;
   font-family: "Trebuchet MS", Verdana, sans-serif;
@@ -3239,6 +3243,25 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   min-height: 42px;
   padding: 0 14px;
   width: 100%;
+}
+
+.calendar-edit-button {
+  background: rgba(47, 128, 237, 0.16);
+  border: 1px solid rgba(47, 128, 237, 0.48);
+  color: #b9d9ff;
+}
+
+.calendar-edit-button:hover,
+.calendar-edit-button:focus-visible {
+  background: rgba(47, 128, 237, 0.25);
+  border-color: rgba(126, 185, 255, 0.7);
+  outline: 0;
+}
+
+.calendar-delete-button {
+  background: rgba(229, 9, 20, 0.14);
+  border: 1px solid rgba(229, 9, 20, 0.46);
+  color: #ffb8bd;
 }
 
 .calendar-delete-button:hover,
