@@ -1585,15 +1585,60 @@ function parseSpokenBirthdayDate(value: string) {
   return `${String(parts.day).padStart(2, "0")}/${String(parts.month).padStart(2, "0")}`;
 }
 
+let modalScrollLockCount = 0;
+let modalScrollPosition = 0;
+let previousBodyPosition = "";
+let previousBodyTop = "";
+let previousBodyWidth = "";
+let previousBodyOverflow = "";
+let previousHtmlOverflow = "";
+
+function lockPageScroll() {
+  modalScrollLockCount += 1;
+  if (modalScrollLockCount > 1) {
+    return;
+  }
+
+  modalScrollPosition = window.scrollY;
+  previousBodyPosition = document.body.style.position;
+  previousBodyTop = document.body.style.top;
+  previousBodyWidth = document.body.style.width;
+  previousBodyOverflow = document.body.style.overflow;
+  previousHtmlOverflow = document.documentElement.style.overflow;
+
+  document.documentElement.style.overflow = "hidden";
+  document.body.style.position = "fixed";
+  document.body.style.top = `-${modalScrollPosition}px`;
+  document.body.style.width = "100%";
+  document.body.style.overflow = "hidden";
+}
+
+function unlockPageScroll() {
+  modalScrollLockCount = Math.max(0, modalScrollLockCount - 1);
+  if (modalScrollLockCount > 0) {
+    return;
+  }
+
+  document.documentElement.style.overflow = previousHtmlOverflow;
+  document.body.style.position = previousBodyPosition;
+  document.body.style.top = previousBodyTop;
+  document.body.style.width = previousBodyWidth;
+  document.body.style.overflow = previousBodyOverflow;
+  window.scrollTo(0, modalScrollPosition);
+}
+
 function useModalClose(onClose: () => void) {
   const [isClosing, setIsClosing] = useState(false);
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    lockPageScroll();
+
     return () => {
       if (timerRef.current) {
         window.clearTimeout(timerRef.current);
       }
+      unlockPageScroll();
     };
   }, []);
 
@@ -5200,7 +5245,9 @@ function CalendarModal({
 
                   return (
                     <section
-                      className={`calendar-timeline-day ${isMutedDay ? "calendar-timeline-empty" : ""}`}
+                      className={`calendar-timeline-day ${distance === 0 ? "calendar-timeline-today" : ""} ${
+                        isMutedDay ? "calendar-timeline-empty" : ""
+                      }`}
                       key={section.date.toISOString()}
                     >
                       <div className="calendar-timeline-date">
