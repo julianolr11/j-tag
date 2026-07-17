@@ -11,6 +11,7 @@ import {
   ChevronRight,
   CloudFog,
   CloudLightning,
+  CloudMoon,
   CloudRain,
   CloudSnow,
   CloudSun,
@@ -24,6 +25,7 @@ import {
   LockKeyhole,
   MapPin,
   Mic,
+  Moon,
   Navigation,
   Pencil,
   Phone,
@@ -101,7 +103,7 @@ type AppState = {
   locationShares: LocationShare[];
 };
 
-type WeatherMood = "sunny" | "partly" | "cloudy" | "rain" | "storm" | "snow" | "fog" | "rainbow";
+type WeatherMood = "sunny" | "partly" | "cloudy" | "rain" | "storm" | "snow" | "fog" | "rainbow" | "night" | "night-cloud";
 
 type TodayWeather = {
   status: "loading" | "ready" | "unavailable";
@@ -109,6 +111,7 @@ type TodayWeather = {
   description: string;
   season: string;
   mood: WeatherMood;
+  isNight?: boolean;
 };
 
 type StarterResidentInput = {
@@ -1162,6 +1165,37 @@ function getWeatherMood(code: number): Pick<TodayWeather, "description" | "mood"
   return { description: "Clima do dia", mood: "partly" };
 }
 
+function isNightTime(date = new Date()) {
+  const hour = date.getHours();
+  return hour >= 18 || hour < 6;
+}
+
+function getWeatherDisplay(weather: TodayWeather, isNightFallback: boolean) {
+  const shouldUseNightDisplay = weather.isNight ?? isNightFallback;
+
+  if (!shouldUseNightDisplay) {
+    return weather;
+  }
+
+  if (weather.mood === "sunny" || weather.mood === "rainbow") {
+    return {
+      ...weather,
+      description: weather.status === "loading" ? weather.description : "Noite limpa",
+      mood: "night" as WeatherMood,
+    };
+  }
+
+  if (weather.mood === "partly" || weather.mood === "cloudy" || weather.mood === "fog") {
+    return {
+      ...weather,
+      description: weather.status === "loading" ? weather.description : "Noite nublada",
+      mood: "night-cloud" as WeatherMood,
+    };
+  }
+
+  return weather;
+}
+
 function getDefaultWeather(): TodayWeather {
   return {
     status: "loading",
@@ -1490,6 +1524,7 @@ export default function HomePage() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [todayWeather, setTodayWeather] = useState<TodayWeather>(() => getDefaultWeather());
+  const [isNightNow, setIsNightNow] = useState(() => isNightTime());
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
   const [profileModal, setProfileModal] = useState<
     "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | null
@@ -1607,6 +1642,16 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    const updateNightState = () => setIsNightNow(isNightTime());
+    updateNightState();
+    const timer = window.setInterval(updateNightState, 60 * 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadWeather(latitude: number, longitude: number) {
@@ -1614,7 +1659,7 @@ export default function HomePage() {
         const params = new URLSearchParams({
           latitude: String(latitude),
           longitude: String(longitude),
-          current: "temperature_2m,weather_code",
+          current: "temperature_2m,weather_code,is_day",
           timezone: "auto",
         });
         const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
@@ -1627,6 +1672,7 @@ export default function HomePage() {
           current?: {
             temperature_2m?: number;
             weather_code?: number;
+            is_day?: number;
           };
         };
         const code = Number(data.current?.weather_code ?? 2);
@@ -1640,6 +1686,7 @@ export default function HomePage() {
             description: mood.description,
             season: getSouthernSeason(),
             mood: mood.mood,
+            isNight: typeof data.current?.is_day === "number" ? data.current.is_day === 0 : isNightTime(),
           });
         }
       } catch {
@@ -2941,7 +2988,7 @@ export default function HomePage() {
                     : "Dia tranquilo"}
                 </strong>
               </div>
-              <WeatherWidget weather={todayWeather} />
+              <WeatherWidget weather={todayWeather} isNight={isNightNow} />
             </div>
           </div>
 
@@ -3243,7 +3290,7 @@ export default function HomePage() {
   );
 }
 
-function WeatherWidget({ weather }: { weather: TodayWeather }) {
+function WeatherWidget({ weather, isNight }: { weather: TodayWeather; isNight: boolean }) {
   const iconMap: Record<WeatherMood, LucideIcon> = {
     sunny: Sun,
     partly: CloudSun,
@@ -3253,23 +3300,26 @@ function WeatherWidget({ weather }: { weather: TodayWeather }) {
     snow: CloudSnow,
     fog: CloudFog,
     rainbow: Rainbow,
+    night: Moon,
+    "night-cloud": CloudMoon,
   };
-  const WeatherIcon = iconMap[weather.mood];
-  const temperature = typeof weather.temperature === "number" ? `${weather.temperature}°` : "--";
+  const displayWeather = getWeatherDisplay(weather, isNight);
+  const WeatherIcon = iconMap[displayWeather.mood];
+  const temperature = typeof displayWeather.temperature === "number" ? `${displayWeather.temperature}°` : "--";
 
   return (
-    <div className={`weather-widget weather-${weather.mood}`} aria-label={`Previsão do tempo: ${weather.description}`}>
+    <div className={`weather-widget weather-${displayWeather.mood}`} aria-label={`Previsão do tempo: ${displayWeather.description}`}>
       <div className="weather-orbit" aria-hidden="true">
         <WeatherIcon size={32} />
-        {weather.mood === "rain" || weather.mood === "storm" ? <span className="weather-drops" /> : null}
+        {displayWeather.mood === "rain" || displayWeather.mood === "storm" ? <span className="weather-drops" /> : null}
       </div>
       <div className="weather-copy">
         <span>
           <Thermometer size={13} />
-          {weather.status === "loading" ? "..." : temperature}
+          {displayWeather.status === "loading" ? "..." : temperature}
         </span>
-        <strong>{weather.description}</strong>
-        <em>{weather.season}</em>
+        <strong>{displayWeather.description}</strong>
+        <em>{displayWeather.season}</em>
       </div>
     </div>
   );

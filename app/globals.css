@@ -2238,6 +2238,14 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   width: 58px;
 }
 
+.weather-orbit::after {
+  border-radius: 999px;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
 .weather-orbit svg {
   animation: weatherFloat 3.4s ease-in-out infinite;
   filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.28));
@@ -2256,6 +2264,24 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 
 .weather-rainbow .weather-orbit {
   color: #ff9acc;
+}
+
+.weather-night .weather-orbit,
+.weather-night-cloud .weather-orbit {
+  background:
+    radial-gradient(circle at 62% 28%, rgba(211, 227, 255, 0.34), transparent 23px),
+    rgba(88, 118, 170, 0.16);
+  border-color: rgba(190, 211, 255, 0.22);
+  color: #dbe7ff;
+}
+
+.weather-night .weather-orbit::after,
+.weather-night-cloud .weather-orbit::after {
+  background:
+    radial-gradient(circle at 24% 28%, rgba(255, 255, 255, 0.9) 0 1px, transparent 2px),
+    radial-gradient(circle at 76% 68%, rgba(255, 255, 255, 0.72) 0 1px, transparent 2px),
+    radial-gradient(circle at 34% 76%, rgba(255, 255, 255, 0.55) 0 1px, transparent 2px);
+  animation: weatherStars 2.8s ease-in-out infinite;
 }
 
 .weather-drops,
@@ -3214,6 +3240,19 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   to {
     opacity: 0;
     transform: translateY(8px);
+  }
+}
+
+@keyframes weatherStars {
+  0%,
+  100% {
+    opacity: 0.44;
+    transform: scale(0.96) rotate(0deg);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.04) rotate(8deg);
   }
 }
 
