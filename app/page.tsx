@@ -42,7 +42,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 type Resident = {
@@ -61,6 +61,7 @@ type Reminder = {
   text: string;
   date: string;
   icon?: ReminderIcon;
+  recurrence?: ReminderRecurrence;
 };
 
 type Birthday = {
@@ -201,6 +202,7 @@ const WELCOME_HOUSEHOLD_MS = 3600;
 
 type CalendarViewMode = "calendar" | "list";
 type ReminderIcon = "general" | "shopping" | "lightbulb" | "medicine" | "home" | "document";
+type ReminderRecurrence = "daily" | "weekly" | "monthly" | "yearly";
 type ProfileThemeId = "default" | "blue-light" | "aurora" | "green-home" | "graphite";
 type AppNotification = {
   id: string;
@@ -209,6 +211,7 @@ type AppNotification = {
   body: string;
   action: "reminderCalendar" | "birthdayCalendar" | "location";
   locationShareId?: string;
+  reminderId?: string;
 };
 type AvatarOption = {
   id: string;
@@ -255,6 +258,7 @@ type ReminderRow = {
   text: string;
   date: string;
   icon: string;
+  recurrence?: string | null;
 };
 
 type BirthdayRow = {
@@ -298,6 +302,13 @@ const reminderIconOptions: Array<{
 const reminderIconMap = Object.fromEntries(
   reminderIconOptions.map((option) => [option.id, option]),
 ) as Record<ReminderIcon, (typeof reminderIconOptions)[number]>;
+
+const reminderRecurrenceOptions: Array<{ id: ReminderRecurrence; label: string }> = [
+  { id: "daily", label: "Todo dia" },
+  { id: "weekly", label: "Toda semana" },
+  { id: "monthly", label: "Todo mês" },
+  { id: "yearly", label: "Todo ano" },
+];
 
 const profileThemes: Array<{
   id: ProfileThemeId;
@@ -449,6 +460,10 @@ function isReminderIcon(value: string): value is ReminderIcon {
   return value in reminderIconMap;
 }
 
+function isReminderRecurrence(value: string): value is ReminderRecurrence {
+  return reminderRecurrenceOptions.some((option) => option.id === value);
+}
+
 function inferReminderIcon(reminder: Reminder): ReminderIcon {
   if (reminder.icon && isReminderIcon(reminder.icon)) {
     return reminder.icon;
@@ -491,6 +506,10 @@ function normalizeReminder(reminder: Reminder): Reminder {
   return {
     ...reminder,
     icon: inferReminderIcon(reminder),
+    recurrence:
+      reminder.recurrence && isReminderRecurrence(reminder.recurrence)
+        ? reminder.recurrence
+        : undefined,
   };
 }
 
@@ -622,6 +641,10 @@ function mapReminder(row: ReminderRow): Reminder {
     text: row.text,
     date: row.date,
     icon: isReminderIcon(row.icon) ? row.icon : "general",
+    recurrence:
+      row.recurrence && isReminderRecurrence(row.recurrence)
+        ? row.recurrence
+        : undefined,
   });
 }
 
@@ -876,14 +899,22 @@ async function insertRemoteReminder(householdId: string, reminder: Reminder) {
     return false;
   }
 
-  const { error } = await supabase.from("reminders").insert({
+  const payload = {
     id: reminder.id,
     household_id: householdId,
     resident_id: reminder.residentId,
     text: reminder.text,
     date: reminder.date,
     icon: reminder.icon ?? "general",
-  });
+    recurrence: reminder.recurrence ?? null,
+  };
+  let { error } = await supabase.from("reminders").insert(payload);
+
+  if (error && error.message.toLowerCase().includes("recurrence")) {
+    const { recurrence: _recurrence, ...fallbackPayload } = payload;
+    const fallbackResult = await supabase.from("reminders").insert(fallbackPayload);
+    error = fallbackResult.error;
+  }
 
   return !error;
 }
@@ -893,14 +924,25 @@ async function updateRemoteReminder(reminder: Reminder) {
     return false;
   }
 
-  const { error } = await supabase
+  const payload = {
+    text: reminder.text,
+    date: reminder.date,
+    icon: reminder.icon ?? "general",
+    recurrence: reminder.recurrence ?? null,
+  };
+  let { error } = await supabase
     .from("reminders")
-    .update({
-      text: reminder.text,
-      date: reminder.date,
-      icon: reminder.icon ?? "general",
-    })
+    .update(payload)
     .eq("id", reminder.id);
+
+  if (error && error.message.toLowerCase().includes("recurrence")) {
+    const { recurrence: _recurrence, ...fallbackPayload } = payload;
+    const fallbackResult = await supabase
+      .from("reminders")
+      .update(fallbackPayload)
+      .eq("id", reminder.id);
+    error = fallbackResult.error;
+  }
 
   return !error;
 }
@@ -1106,6 +1148,35 @@ function formatReminderDateInput(value: string) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getReminderRecurrenceLabel(recurrence?: ReminderRecurrence) {
+  return reminderRecurrenceOptions.find((option) => option.id === recurrence)?.label ?? "";
+}
+
+function getNextReminderDate(reminder: Reminder) {
+  const currentDate = parseReminderDate(reminder.date) ?? startOfToday();
+  const today = startOfToday();
+  const nextDate = new Date(currentDate);
+
+  do {
+    if (reminder.recurrence === "daily") {
+      nextDate.setDate(nextDate.getDate() + 1);
+    } else if (reminder.recurrence === "weekly") {
+      nextDate.setDate(nextDate.getDate() + 7);
+    } else if (reminder.recurrence === "monthly") {
+      nextDate.setMonth(nextDate.getMonth() + 1);
+    } else if (reminder.recurrence === "yearly") {
+      nextDate.setFullYear(nextDate.getFullYear() + 1);
+    } else {
+      return reminder.date;
+    }
+  } while (nextDate.getTime() <= today.getTime());
+
+  const year = nextDate.getFullYear();
+  const month = String(nextDate.getMonth() + 1).padStart(2, "0");
+  const day = String(nextDate.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -1845,11 +1916,12 @@ export default function HomePage() {
         }
 
         return [{
-          id: `reminder-${reminder.id}-${distance < 0 ? "overdue" : "today"}`,
+          id: `reminder-${reminder.id}-${formatReminderDateInput(reminder.date)}-${distance < 0 ? "overdue" : "today"}`,
           kind: "reminder" as const,
           title: distance < 0 ? "Lembrete atrasado" : "Lembrete para hoje",
           body: reminder.text,
           action: "reminderCalendar" as const,
+          reminderId: reminder.id,
         }];
       });
     const birthdayNotifications = birthdayPreview
@@ -2322,6 +2394,7 @@ export default function HomePage() {
     const text = String(form.get("text") ?? "").trim();
     const date = String(form.get("date") ?? "").trim();
     const icon = String(form.get("icon") ?? "general");
+    const recurrence = String(form.get("recurrence") ?? "");
 
     if (!text) {
       return;
@@ -2333,6 +2406,7 @@ export default function HomePage() {
       text,
       date: date || "Hoje",
       icon: isReminderIcon(icon) ? icon : "general",
+      recurrence: isReminderRecurrence(recurrence) ? recurrence : undefined,
     };
 
     await insertRemoteReminder(appState.household.id, reminder);
@@ -2353,6 +2427,7 @@ export default function HomePage() {
     const text = String(form.get("text") ?? "").trim();
     const date = String(form.get("date") ?? "").trim();
     const icon = String(form.get("icon") ?? "general");
+    const recurrence = String(form.get("recurrence") ?? "");
 
     if (!text) {
       return;
@@ -2363,6 +2438,7 @@ export default function HomePage() {
       text,
       date: date || "Hoje",
       icon: isReminderIcon(icon) ? icon : "general",
+      recurrence: isReminderRecurrence(recurrence) ? recurrence : undefined,
     };
 
     await updateRemoteReminder(updatedReminder);
@@ -2379,6 +2455,44 @@ export default function HomePage() {
   function handleEditReminder(reminder: Reminder) {
     setEditingReminder(reminder);
     setProfileModal("reminder");
+  }
+
+  async function handleCompleteReminder(reminder: Reminder) {
+    const relatedNotificationIds = notifications
+      .filter(
+        (notification) =>
+          "reminderId" in notification && notification.reminderId === reminder.id,
+      )
+      .map((notification) => notification.id);
+
+    if (relatedNotificationIds.length) {
+      setDismissedNotifications((current) => {
+        const next = Array.from(new Set([...current, ...relatedNotificationIds]));
+        saveDismissedNotifications(next);
+        return next;
+      });
+    }
+
+    if (!reminder.recurrence) {
+      await deleteRemoteReminder(reminder.id);
+      setAppState((current) => ({
+        ...current,
+        reminders: current.reminders.filter((item) => item.id !== reminder.id),
+      }));
+      return;
+    }
+
+    const updatedReminder = {
+      ...reminder,
+      date: getNextReminderDate(reminder),
+    };
+    await updateRemoteReminder(updatedReminder);
+    setAppState((current) => ({
+      ...current,
+      reminders: current.reminders.map((item) =>
+        item.id === reminder.id ? updatedReminder : item,
+      ),
+    }));
   }
 
   async function handleAddBirthday(event: FormEvent<HTMLFormElement>) {
@@ -3202,6 +3316,7 @@ export default function HomePage() {
             }}
             onDelete={(item) => void handleDeleteReminder(item as Reminder)}
             onEdit={(item) => handleEditReminder(item as Reminder)}
+            onComplete={(item) => void handleCompleteReminder(item as Reminder)}
             title="Calendário de lembretes"
           />
         ) : null}
@@ -3213,6 +3328,7 @@ export default function HomePage() {
             onCreate={() => setProfileModal("birthday")}
             onDelete={(item) => void handleDeleteBirthday(item as Birthday)}
             onEdit={() => undefined}
+            onComplete={() => undefined}
             title="Calendário de aniversários"
           />
         ) : null}
@@ -4491,6 +4607,7 @@ function ReminderModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [repeats, setRepeats] = useState(Boolean(reminder?.recurrence));
 
   return (
     <div className={backdropClassName}>
@@ -4545,6 +4662,36 @@ function ReminderModal({
               type="date"
             />
           </div>
+        </div>
+        <div className="reminder-repeat-section">
+          <label className="reminder-repeat-toggle">
+            <span>
+              <strong>Se repete</strong>
+              <small>Cria a próxima ocorrência automaticamente</small>
+            </span>
+            <input
+              checked={repeats}
+              onChange={(event) => setRepeats(event.target.checked)}
+              type="checkbox"
+            />
+            <i aria-hidden="true" />
+          </label>
+          {repeats ? (
+            <div className="field reminder-recurrence-field">
+              <label htmlFor="reminder-recurrence">Frequência</label>
+              <select
+                defaultValue={reminder?.recurrence ?? "daily"}
+                id="reminder-recurrence"
+                name="recurrence"
+              >
+                {reminderRecurrenceOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
         </div>
         <button className="primary-action" type="submit">
           <Check size={18} />
@@ -4705,11 +4852,46 @@ function ReminderIconBadge({ icon }: { icon?: ReminderIcon }) {
 
 type CalendarItem = (Reminder | Birthday) & { parsedDate: Date };
 
+function CompleteReminderSlider({ onComplete }: { onComplete: () => void }) {
+  const [value, setValue] = useState(0);
+
+  function finishSlide() {
+    if (value >= 85) {
+      onComplete();
+      return;
+    }
+
+    setValue(0);
+  }
+
+  return (
+    <div className="complete-reminder-slider" style={{ "--slide-progress": `${value}%` } as CSSProperties}>
+      <span>Arraste para concluir</span>
+      <input
+        aria-label="Arraste para marcar o lembrete como concluído"
+        max="100"
+        min="0"
+        onChange={(event) => setValue(Number(event.target.value))}
+        onKeyUp={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            onComplete();
+          }
+        }}
+        onPointerUp={finishSlide}
+        type="range"
+        value={value}
+      />
+      <Check aria-hidden="true" size={18} />
+    </div>
+  );
+}
+
 function CalendarModal({
   items,
   kind,
   onClose,
   onCreate,
+  onComplete,
   onDelete,
   onEdit,
   title,
@@ -4718,6 +4900,7 @@ function CalendarModal({
   kind: "reminder" | "birthday";
   onClose: () => void;
   onCreate: () => void;
+  onComplete: (item: Reminder | Birthday) => void;
   onDelete: (item: Reminder | Birthday) => void;
   onEdit: (item: Reminder | Birthday) => void;
   title: string;
@@ -4824,6 +5007,15 @@ function CalendarModal({
     }
 
     onEdit(selectedCalendarItem);
+    setSelectedCalendarItem(null);
+  }
+
+  function handleCompleteSelectedItem() {
+    if (!selectedCalendarItem) {
+      return;
+    }
+
+    onComplete(selectedCalendarItem);
     setSelectedCalendarItem(null);
   }
 
@@ -5050,7 +5242,15 @@ function CalendarModal({
                     ? formatBirthdayValue((selectedCalendarItem as Birthday).date)
                     : formatDateLabel((selectedCalendarItem as Reminder).date)}
                 </small>
+                {kind === "reminder" && (selectedCalendarItem as Reminder).recurrence ? (
+                  <span className="calendar-detail-recurrence">
+                    {getReminderRecurrenceLabel((selectedCalendarItem as Reminder).recurrence)}
+                  </span>
+                ) : null}
               </div>
+              {kind === "reminder" ? (
+                <CompleteReminderSlider onComplete={handleCompleteSelectedItem} />
+              ) : null}
               <div className="calendar-detail-actions">
                 {kind === "reminder" ? (
                   <button className="calendar-edit-button" type="button" onClick={handleEditSelectedItem}>

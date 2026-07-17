@@ -1542,6 +1542,97 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   overflow-wrap: anywhere;
 }
 
+.reminder-repeat-section {
+  display: grid;
+  gap: 12px;
+}
+
+.reminder-repeat-toggle {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  cursor: pointer;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 48px;
+  min-height: 62px;
+  padding: 10px 12px;
+  position: relative;
+}
+
+.reminder-repeat-toggle > span {
+  display: grid;
+  gap: 3px;
+}
+
+.reminder-repeat-toggle strong {
+  color: #fff;
+  font-size: 0.92rem;
+}
+
+.reminder-repeat-toggle small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.reminder-repeat-toggle input {
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.reminder-repeat-toggle i {
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  height: 26px;
+  position: relative;
+  transition: background 180ms ease;
+  width: 46px;
+}
+
+.reminder-repeat-toggle i::after {
+  background: #fff;
+  border-radius: 50%;
+  content: "";
+  height: 20px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform 180ms ease;
+  width: 20px;
+}
+
+.reminder-repeat-toggle input:checked + i {
+  background: #2f80ed;
+}
+
+.reminder-repeat-toggle input:checked + i::after {
+  transform: translateX(20px);
+}
+
+.reminder-repeat-toggle:has(input:focus-visible) {
+  border-color: rgba(126, 185, 255, 0.8);
+  box-shadow: 0 0 0 2px rgba(47, 128, 237, 0.2);
+}
+
+.reminder-recurrence-field select {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #fff;
+  min-height: 48px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.reminder-recurrence-field option {
+  background: #242424;
+  color: #fff;
+}
+
 .photo-picker {
   cursor: pointer;
 }
@@ -3222,6 +3313,69 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 .calendar-detail-card small {
   color: var(--muted);
   font-family: "Trebuchet MS", Verdana, sans-serif;
+}
+
+.calendar-detail-recurrence {
+  background: rgba(47, 128, 237, 0.16);
+  border: 1px solid rgba(47, 128, 237, 0.35);
+  border-radius: 999px;
+  color: #b9d9ff;
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 900;
+  margin: 10px auto 0;
+  padding: 5px 9px;
+  width: fit-content;
+}
+
+.complete-reminder-slider {
+  --slide-progress: 0%;
+  align-items: center;
+  background:
+    linear-gradient(90deg, rgba(39, 174, 96, 0.42) var(--slide-progress), transparent var(--slide-progress)),
+    rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  min-height: 50px;
+  overflow: hidden;
+  position: relative;
+  transition: background 80ms linear;
+  width: 100%;
+}
+
+.complete-reminder-slider > span {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding-left: 18px;
+  pointer-events: none;
+}
+
+.complete-reminder-slider > svg {
+  color: #bff4d2;
+  margin-right: 15px;
+  pointer-events: none;
+}
+
+.complete-reminder-slider input {
+  cursor: grab;
+  height: 100%;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.complete-reminder-slider input:active {
+  cursor: grabbing;
+}
+
+.complete-reminder-slider:has(input:focus-visible) {
+  border-color: rgba(91, 218, 144, 0.8);
+  box-shadow: 0 0 0 2px rgba(39, 174, 96, 0.2);
 }
 
 .calendar-detail-actions {
