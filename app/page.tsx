@@ -3425,9 +3425,28 @@ function LocationMapModal({
           <MapPin size={30} />
         </span>
         <p className="eyebrow">Mapa</p>
-        <h2>{resident?.name ?? "Morador"}</h2>
-        <div className="location-map-preview">
-          <MapPin size={34} />
+        <h2>{resident?.name ?? "Morador"} está aqui</h2>
+        <div className="location-live-map" aria-label="Prévia visual da localização compartilhada">
+          <span className="map-road map-road-one" />
+          <span className="map-road map-road-two" />
+          <span className="map-road map-road-three" />
+          <span className="map-route" />
+          <span className="map-home-point">
+            <House size={15} />
+          </span>
+          <span className="map-person-pin">
+            <span className="map-pulse" />
+            <span className="map-avatar">
+              {resident ? <Avatar resident={resident} /> : <MapPin size={22} />}
+            </span>
+          </span>
+          <div className="map-live-card">
+            <strong>{resident?.name ?? "Morador"}</strong>
+            <span>Localização ativa</span>
+          </div>
+        </div>
+        <div className="location-coordinate-row">
+          <MapPin size={15} />
           <span>{share.latitude.toFixed(4)}, {share.longitude.toFixed(4)}</span>
         </div>
         <p className="location-modal-copy">
