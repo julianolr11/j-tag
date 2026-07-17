@@ -1150,39 +1150,44 @@ function formatReminderDateInput(value: string) {
     return "";
   }
 
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return formatDateInputValue(date);
 }
 
 function getReminderRecurrenceLabel(recurrence?: ReminderRecurrence) {
   return reminderRecurrenceOptions.find((option) => option.id === recurrence)?.label ?? "";
 }
 
-function getNextReminderDate(reminder: Reminder) {
-  const currentDate = parseReminderDate(reminder.date) ?? startOfToday();
+function getCurrentReminderOccurrence(reminder: Reminder) {
+  const originalDate = parseReminderDate(reminder.date);
+  if (!originalDate || !reminder.recurrence) {
+    return originalDate;
+  }
+
   const today = startOfToday();
-  const nextDate = new Date(currentDate);
+  const occurrence = new Date(originalDate);
 
-  do {
+  if (occurrence.getTime() > today.getTime()) {
+    return occurrence;
+  }
+
+  while (true) {
+    const nextOccurrence = new Date(occurrence);
     if (reminder.recurrence === "daily") {
-      nextDate.setDate(nextDate.getDate() + 1);
+      nextOccurrence.setDate(nextOccurrence.getDate() + 1);
     } else if (reminder.recurrence === "weekly") {
-      nextDate.setDate(nextDate.getDate() + 7);
+      nextOccurrence.setDate(nextOccurrence.getDate() + 7);
     } else if (reminder.recurrence === "monthly") {
-      nextDate.setMonth(nextDate.getMonth() + 1);
+      nextOccurrence.setMonth(nextOccurrence.getMonth() + 1);
     } else if (reminder.recurrence === "yearly") {
-      nextDate.setFullYear(nextDate.getFullYear() + 1);
-    } else {
-      return reminder.date;
+      nextOccurrence.setFullYear(nextOccurrence.getFullYear() + 1);
     }
-  } while (nextDate.getTime() <= today.getTime());
 
-  const year = nextDate.getFullYear();
-  const month = String(nextDate.getMonth() + 1).padStart(2, "0");
-  const day = String(nextDate.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+    if (nextOccurrence.getTime() > today.getTime()) {
+      return occurrence;
+    }
+
+    occurrence.setTime(nextOccurrence.getTime());
+  }
 }
 
 function parseBirthdayDate(value: string) {
@@ -1921,7 +1926,7 @@ export default function HomePage() {
   const notifications = useMemo(() => {
     const today = startOfToday();
     const reminderNotifications = activeReminders.flatMap((reminder) => {
-        const parsedDate = parseReminderDate(reminder.date);
+        const parsedDate = getCurrentReminderOccurrence(reminder);
 
         if (!parsedDate) {
           return [];
@@ -1933,7 +1938,7 @@ export default function HomePage() {
         }
 
         return [{
-          id: `reminder-${reminder.id}-${formatReminderDateInput(reminder.date)}-${distance < 0 ? "overdue" : "today"}`,
+          id: `reminder-${reminder.id}-${formatDateInputValue(parsedDate)}-${distance < 0 ? "overdue" : "today"}`,
           kind: "reminder" as const,
           title: distance < 0 ? "Lembrete atrasado" : "Lembrete para hoje",
           body: reminder.text,
@@ -2496,20 +2501,7 @@ export default function HomePage() {
         ...current,
         reminders: current.reminders.filter((item) => item.id !== reminder.id),
       }));
-      return;
     }
-
-    const updatedReminder = {
-      ...reminder,
-      date: getNextReminderDate(reminder),
-    };
-    await updateRemoteReminder(updatedReminder);
-    setAppState((current) => ({
-      ...current,
-      reminders: current.reminders.map((item) =>
-        item.id === reminder.id ? updatedReminder : item,
-      ),
-    }));
   }
 
   async function handleAddBirthday(event: FormEvent<HTMLFormElement>) {
