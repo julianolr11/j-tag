@@ -3406,6 +3406,7 @@ function LocationMapModal({
   onClose: () => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [addressLabel, setAddressLabel] = useState("Buscando rua próxima...");
   const resident = residents.find((item) => item.id === share.residentId);
   const mapUrl = `https://www.google.com/maps?q=${share.latitude},${share.longitude}`;
   const createdAt = new Date(share.createdAt).toLocaleString("pt-BR", {
@@ -3414,6 +3415,59 @@ function LocationMapModal({
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadAddress() {
+      try {
+        const params = new URLSearchParams({
+          format: "jsonv2",
+          lat: String(share.latitude),
+          lon: String(share.longitude),
+          zoom: "18",
+          addressdetails: "1",
+          "accept-language": "pt-BR",
+        });
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`);
+
+        if (!response.ok) {
+          throw new Error("reverse geocode failed");
+        }
+
+        const data = (await response.json()) as {
+          display_name?: string;
+          address?: {
+            road?: string;
+            pedestrian?: string;
+            footway?: string;
+            neighbourhood?: string;
+            suburb?: string;
+            city?: string;
+            town?: string;
+          };
+        };
+        const road = data.address?.road ?? data.address?.pedestrian ?? data.address?.footway;
+        const area = data.address?.neighbourhood ?? data.address?.suburb;
+        const city = data.address?.city ?? data.address?.town;
+        const nextAddress = [road, area, city].filter(Boolean).join(" · ") || data.display_name || "Rua próxima indisponível";
+
+        if (isMounted) {
+          setAddressLabel(nextAddress);
+        }
+      } catch {
+        if (isMounted) {
+          setAddressLabel("Rua próxima indisponível");
+        }
+      }
+    }
+
+    void loadAddress();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [share.latitude, share.longitude]);
 
   return (
     <div className={backdropClassName}>
@@ -3426,10 +3480,16 @@ function LocationMapModal({
         </span>
         <p className="eyebrow">Mapa</p>
         <h2>{resident?.name ?? "Morador"} está aqui</h2>
+        <div className="location-address-card">
+          <MapPin size={16} />
+          <span>{addressLabel}</span>
+        </div>
         <div className="location-live-map" aria-label="Prévia visual da localização compartilhada">
           <span className="map-road map-road-one" />
           <span className="map-road map-road-two" />
           <span className="map-road map-road-three" />
+          <span className="map-road-label map-road-label-one">Rua próxima</span>
+          <span className="map-road-label map-road-label-two">Ponto atual</span>
           <span className="map-route" />
           <span className="map-home-point">
             <House size={15} />
