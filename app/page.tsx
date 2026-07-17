@@ -3496,10 +3496,6 @@ function LocationMapModal({
         <div className="location-live-map" aria-label="Mapa real da localização compartilhada">
           <LeafletLocationMap resident={resident} share={share} />
         </div>
-        <div className="location-coordinate-row">
-          <MapPin size={15} />
-          <span>{share.latitude.toFixed(4)}, {share.longitude.toFixed(4)}</span>
-        </div>
         <p className="location-modal-copy">
           Compartilhado em {createdAt}
           {share.accuracy ? ` · precisão aproximada ${Math.round(share.accuracy)}m` : ""}
@@ -3557,6 +3553,7 @@ function LeafletLocationMap({ resident, share }: { resident?: Resident; share: L
       markerRef.current = L.marker(center, { icon }).addTo(map);
       mapRef.current = map;
       window.setTimeout(() => map.invalidateSize(), 80);
+      window.setTimeout(() => map.invalidateSize(), 360);
     }
 
     void initializeMap();
