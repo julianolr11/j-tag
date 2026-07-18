@@ -18,6 +18,7 @@ import {
   CloudSun,
   Cloudy,
   FileText,
+  Droplets,
   HeartPulse,
   History,
   House,
@@ -148,6 +149,30 @@ type TodayWeather = {
   season: string;
   mood: WeatherMood;
   isNight?: boolean;
+  humidity?: number;
+  forecast?: WeatherForecastDay[];
+};
+
+type WeatherForecastDay = {
+  date: string;
+  min: number;
+  max: number;
+  precipitation: number;
+  mood: WeatherMood;
+  description: string;
+};
+
+const weatherIconMap: Record<WeatherMood, LucideIcon> = {
+  sunny: Sun,
+  partly: CloudSun,
+  cloudy: Cloudy,
+  rain: CloudRain,
+  storm: CloudLightning,
+  snow: CloudSnow,
+  fog: CloudFog,
+  rainbow: Rainbow,
+  night: Moon,
+  "night-cloud": CloudMoon,
 };
 
 type StarterResidentInput = {
@@ -419,6 +444,10 @@ const releaseNotes = {
   title: "Novidades do J-tag",
   date: "18/07/2026",
   items: [
+    "O card do dia agora abre um resumo com temperatura, umidade e previsão compacta para os próximos 5 dias.",
+    "Modais, stories e detalhes do calendário ganharam transições suaves de entrada e saída.",
+    "Avisos temporários, como a limitação de tela cheia no navegador, agora desaparecem com uma animação suave.",
+    "Agora é possível enviar uma foto própria para o perfil; ao trocar, a imagem anterior é substituída automaticamente.",
     "A nova timeline da casa mostra os últimos acontecimentos, quem realizou cada ação e quando.",
     "Moradores, lembretes, aniversários, contatos, localizações e atividades agora sincronizam em tempo real entre aparelhos.",
     "A edição do perfil agora abre ao tocar na foto, deixando o topo mais limpo.",
@@ -1920,7 +1949,7 @@ export default function HomePage() {
   const [dailyMessageNow, setDailyMessageNow] = useState(() => Date.now());
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
   const [profileModal, setProfileModal] = useState<
-    "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | "timeline" | null
+    "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | "timeline" | "weather" | null
   >(null);
   const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
   const [newResidentPhoto, setNewResidentPhoto] = useState("");
@@ -1931,6 +1960,7 @@ export default function HomePage() {
   const [isListening, setIsListening] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState("");
+  const [isVoiceMessageClosing, setIsVoiceMessageClosing] = useState(false);
   const [dailyMessageDraft, setDailyMessageDraft] = useState("");
   const [dailyMessagePhoto, setDailyMessagePhoto] = useState("");
   const pendingVoiceHandlerRef = useRef<((transcript: string) => void) | null>(null);
@@ -2062,7 +2092,9 @@ export default function HomePage() {
         const params = new URLSearchParams({
           latitude: String(latitude),
           longitude: String(longitude),
-          current: "temperature_2m,weather_code,is_day",
+          current: "temperature_2m,relative_humidity_2m,weather_code,is_day",
+          daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+          forecast_days: "6",
           timezone: "auto",
         });
         const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params.toString()}`);
@@ -2074,12 +2106,33 @@ export default function HomePage() {
         const data = (await response.json()) as {
           current?: {
             temperature_2m?: number;
+            relative_humidity_2m?: number;
             weather_code?: number;
             is_day?: number;
+          };
+          daily?: {
+            time?: string[];
+            weather_code?: number[];
+            temperature_2m_max?: number[];
+            temperature_2m_min?: number[];
+            precipitation_probability_max?: number[];
           };
         };
         const code = Number(data.current?.weather_code ?? 2);
         const mood = getWeatherMood(code);
+        const forecast = (data.daily?.time ?? []).slice(1, 6).map((date, index) => {
+          const dailyIndex = index + 1;
+          const dailyMood = getWeatherMood(Number(data.daily?.weather_code?.[dailyIndex] ?? 2));
+
+          return {
+            date,
+            min: Math.round(Number(data.daily?.temperature_2m_min?.[dailyIndex] ?? 0)),
+            max: Math.round(Number(data.daily?.temperature_2m_max?.[dailyIndex] ?? 0)),
+            precipitation: Math.round(Number(data.daily?.precipitation_probability_max?.[dailyIndex] ?? 0)),
+            mood: dailyMood.mood,
+            description: dailyMood.description,
+          };
+        });
 
         if (isMounted) {
           setTodayWeather({
@@ -2090,6 +2143,11 @@ export default function HomePage() {
             season: getSouthernSeason(),
             mood: mood.mood,
             isNight: typeof data.current?.is_day === "number" ? data.current.is_day === 0 : isNightTime(),
+            humidity:
+              typeof data.current?.relative_humidity_2m === "number"
+                ? Math.round(data.current.relative_humidity_2m)
+                : undefined,
+            forecast,
           });
         }
       } catch {
@@ -3343,6 +3401,7 @@ export default function HomePage() {
   }
 
   function showAssistantMessage(message: string, shouldSpeak = true) {
+    setIsVoiceMessageClosing(false);
     setVoiceMessage(message);
 
     if (shouldSpeak) {
@@ -3655,11 +3714,16 @@ export default function HomePage() {
         window.clearTimeout(fullscreenMessageTimerRef.current);
       }
 
+      setIsVoiceMessageClosing(false);
       setVoiceMessage(fullscreenMessage);
       fullscreenMessageTimerRef.current = window.setTimeout(() => {
-        setVoiceMessage((current) => (current === fullscreenMessage ? "" : current));
-        fullscreenMessageTimerRef.current = null;
-      }, 10_000);
+        setIsVoiceMessageClosing(true);
+        fullscreenMessageTimerRef.current = window.setTimeout(() => {
+          setVoiceMessage((current) => (current === fullscreenMessage ? "" : current));
+          setIsVoiceMessageClosing(false);
+          fullscreenMessageTimerRef.current = null;
+        }, 350);
+      }, 9_650);
     }
   }
 
@@ -3792,7 +3856,7 @@ export default function HomePage() {
             </div>
           </div>
           {voiceMessage ? (
-            <div className={`voice-status ${isListening ? "voice-status-listening" : ""}`}>
+            <div className={`voice-status ${isListening ? "voice-status-listening" : ""} ${isVoiceMessageClosing ? "voice-status-closing" : ""}`}>
               {isListening ? (
                 <span className="voice-wave" aria-hidden="true">
                   <span />
@@ -3826,7 +3890,12 @@ export default function HomePage() {
                 </span>
               </div>
             </div>
-            <div className="dashboard-today-card">
+            <button
+              className="dashboard-today-card"
+              type="button"
+              onClick={() => setProfileModal("weather")}
+              aria-label="Abrir resumo do dia e previsão do tempo"
+            >
               <div className="dashboard-today-copy">
                 <span>{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span>
                 <strong>
@@ -3836,7 +3905,7 @@ export default function HomePage() {
                 </strong>
               </div>
               <WeatherWidget weather={todayWeather} isNight={isNightNow} />
-            </div>
+            </button>
           </div>
 
           <article
@@ -4039,6 +4108,9 @@ export default function HomePage() {
         ) : null}
         {profileModal === "birthday" ? (
           <BirthdayModal onClose={() => setProfileModal(null)} onSubmit={handleAddBirthday} />
+        ) : null}
+        {profileModal === "weather" ? (
+          <WeatherSummaryModal weather={todayWeather} onClose={() => setProfileModal(null)} />
         ) : null}
         {profileModal === "edit" ? (
           <EditResidentModal
@@ -4273,20 +4345,8 @@ export default function HomePage() {
 }
 
 function WeatherWidget({ weather, isNight }: { weather: TodayWeather; isNight: boolean }) {
-  const iconMap: Record<WeatherMood, LucideIcon> = {
-    sunny: Sun,
-    partly: CloudSun,
-    cloudy: Cloudy,
-    rain: CloudRain,
-    storm: CloudLightning,
-    snow: CloudSnow,
-    fog: CloudFog,
-    rainbow: Rainbow,
-    night: Moon,
-    "night-cloud": CloudMoon,
-  };
   const displayWeather = getWeatherDisplay(weather, isNight);
-  const WeatherIcon = iconMap[displayWeather.mood];
+  const WeatherIcon = weatherIconMap[displayWeather.mood];
   const temperature = typeof displayWeather.temperature === "number" ? `${displayWeather.temperature}°` : "--";
 
   return (
@@ -4303,6 +4363,80 @@ function WeatherWidget({ weather, isNight }: { weather: TodayWeather; isNight: b
         <strong>{displayWeather.description}</strong>
         <em>{displayWeather.season}</em>
       </div>
+    </div>
+  );
+}
+
+function WeatherSummaryModal({
+  weather,
+  onClose,
+}: {
+  weather: TodayWeather;
+  onClose: () => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const displayWeather = getWeatherDisplay(weather, isNightTime());
+  const CurrentIcon = weatherIconMap[displayWeather.mood];
+
+  return (
+    <div className={backdropClassName}>
+      <section className="dark-modal weather-summary-modal" role="dialog" aria-modal="true" aria-labelledby="weather-summary-title">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <p className="eyebrow">Resumo do dia</p>
+        <h2 id="weather-summary-title">
+          {weather.status === "ready" ? displayWeather.description : "Previsão indisponível"}
+        </h2>
+
+        <div className={`weather-summary-current weather-${displayWeather.mood}`}>
+          <span className="weather-summary-main-icon">
+            <CurrentIcon size={38} />
+          </span>
+          <div>
+            <small>Agora</small>
+            <strong>{typeof weather.temperature === "number" ? `${weather.temperature}°C` : "--"}</strong>
+            <span>{weather.season}</span>
+          </div>
+          <div className="weather-humidity">
+            <Droplets size={20} />
+            <span>
+              <small>Umidade</small>
+              <strong>{typeof weather.humidity === "number" ? `${weather.humidity}%` : "--"}</strong>
+            </span>
+          </div>
+        </div>
+
+        <div className="weather-forecast-heading">
+          <strong>Próximos 5 dias</strong>
+          <small>mín. · máx.</small>
+        </div>
+        <div className="weather-forecast-list">
+          {weather.forecast?.length ? (
+            weather.forecast.map((day) => {
+              const ForecastIcon = weatherIconMap[day.mood];
+              const date = new Date(`${day.date}T12:00:00`);
+
+              return (
+                <article key={day.date}>
+                  <span>
+                    <strong>{date.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "")}</strong>
+                    <small>{date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}</small>
+                  </span>
+                  <ForecastIcon size={24} />
+                  <span className="weather-forecast-rain">
+                    <Droplets size={13} />
+                    {day.precipitation}%
+                  </span>
+                  <strong>{day.min}° · {day.max}°</strong>
+                </article>
+              );
+            })
+          ) : (
+            <div className="weather-forecast-empty">A previsão dos próximos dias ainda não está disponível.</div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
@@ -5504,6 +5638,26 @@ function AvatarPicker({
   photo: string;
   onSelect: (photo: string) => void;
 }) {
+  const [uploadError, setUploadError] = useState("");
+
+  function handleUpload(file?: File) {
+    if (!file) {
+      return;
+    }
+
+    if (file.size > 3 * 1024 * 1024) {
+      setUploadError("Escolha uma foto de até 3 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      onSelect(String(reader.result ?? ""));
+      setUploadError("");
+    };
+    reader.readAsDataURL(file);
+  }
+
   return (
     <div className={`avatar-picker ${compact ? "avatar-picker-compact" : ""}`}>
       <div
@@ -5519,7 +5673,7 @@ function AvatarPicker({
       </div>
       <div className="avatar-picker-copy">
         <strong>Escolha um avatar</strong>
-        <span>Imagens prontas para o perfil.</span>
+        <span>Use uma imagem pronta ou envie sua foto.</span>
       </div>
       <div className="avatar-option-grid" role="list" aria-label="Avatares prontos">
         {avatarOptions.map((avatar) => {
@@ -5540,6 +5694,16 @@ function AvatarPicker({
           );
         })}
       </div>
+      <label className="avatar-upload-button">
+        <input
+          accept="image/*"
+          type="file"
+          onChange={(event) => handleUpload(event.target.files?.[0])}
+        />
+        <Camera size={17} />
+        <span>{photo && !avatarOptions.some((avatar) => avatar.src === photo) ? "Trocar foto" : "Enviar minha foto"}</span>
+      </label>
+      {uploadError ? <small className="avatar-upload-error">{uploadError}</small> : null}
       {photo ? (
         <button className="avatar-clear-button" type="button" onClick={() => onSelect("")}>
           Usar inicial do nome
@@ -5998,6 +6162,7 @@ function CalendarModal({
   const today = startOfToday();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(today));
   const [selectedCalendarItem, setSelectedCalendarItem] = useState<CalendarItem | null>(null);
+  const [isCalendarDetailClosing, setIsCalendarDetailClosing] = useState(false);
   const [monthMotionDirection, setMonthMotionDirection] = useState<"next" | "prev">("next");
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const { backdropClassName, requestClose } = useModalClose(onClose);
@@ -6107,6 +6272,18 @@ function CalendarModal({
 
     onComplete(selectedCalendarItem);
     setSelectedCalendarItem(null);
+  }
+
+  function closeCalendarDetail() {
+    if (isCalendarDetailClosing) {
+      return;
+    }
+
+    setIsCalendarDetailClosing(true);
+    window.setTimeout(() => {
+      setSelectedCalendarItem(null);
+      setIsCalendarDetailClosing(false);
+    }, MODAL_EXIT_MS);
   }
 
   const monthNavigation = (
@@ -6305,12 +6482,12 @@ function CalendarModal({
         </button>
 
         {selectedCalendarItem ? (
-          <div className="calendar-detail-backdrop">
+          <div className={`calendar-detail-backdrop ${isCalendarDetailClosing ? "calendar-detail-backdrop-closing" : ""}`}>
             <article className="calendar-detail-card">
               <button
                 className="close-button"
                 type="button"
-                onClick={() => setSelectedCalendarItem(null)}
+                onClick={closeCalendarDetail}
                 aria-label="Fechar detalhe"
               >
                 <X size={18} />

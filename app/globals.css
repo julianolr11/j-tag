@@ -739,6 +739,47 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   width: 100%;
 }
 
+.avatar-upload-button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.085);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 600;
+  gap: 8px;
+  min-height: 40px;
+  overflow: hidden;
+  padding: 0 14px;
+  position: relative;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.avatar-upload-button:hover,
+.avatar-upload-button:focus-within {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.34);
+  transform: translateY(-1px);
+}
+
+.avatar-upload-button input {
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+}
+
+.avatar-upload-button svg {
+  color: #a9ceff;
+}
+
+.avatar-upload-error {
+  color: #ffb2b7;
+  font-size: 0.76rem;
+}
+
 .avatar-clear-button {
   background: transparent;
   border: 0;
@@ -1376,7 +1417,8 @@ html:-webkit-full-screen .modal-backdrop {
   pointer-events: none;
 }
 
-.modal-backdrop-closing .dark-modal {
+.modal-backdrop-closing .dark-modal,
+.modal-backdrop-closing .daily-story {
   animation: modalPanelOut 220ms cubic-bezier(0.7, 0, 0.84, 0) both;
 }
 
@@ -1841,6 +1883,124 @@ html:-webkit-full-screen .modal-backdrop {
   border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
+.weather-summary-modal {
+  max-width: 560px;
+}
+
+.weather-summary-current {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(47, 128, 237, 0.18), rgba(255, 255, 255, 0.07)),
+    rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(142, 197, 255, 0.22);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  min-height: 100px;
+  padding: 16px;
+}
+
+.weather-summary-main-icon {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 50%;
+  color: #ffd37a;
+  display: inline-flex;
+  height: 58px;
+  justify-content: center;
+  width: 58px;
+}
+
+.weather-summary-current > div {
+  display: grid;
+  gap: 2px;
+}
+
+.weather-summary-current small,
+.weather-summary-current span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.weather-summary-current > div > strong {
+  font-size: 1.7rem;
+}
+
+.weather-humidity {
+  align-items: center;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  color: #8ec5ff;
+  display: flex !important;
+  gap: 9px !important;
+  padding-left: 16px;
+}
+
+.weather-humidity span {
+  display: grid;
+}
+
+.weather-humidity strong {
+  color: #fff;
+  font-size: 1.15rem;
+}
+
+.weather-forecast-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.weather-forecast-heading small {
+  color: var(--muted);
+}
+
+.weather-forecast-list {
+  display: grid;
+  gap: 7px;
+}
+
+.weather-forecast-list article {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 64px 30px minmax(62px, 1fr) auto;
+  min-height: 58px;
+  padding: 9px 12px;
+}
+
+.weather-forecast-list article > span:first-child {
+  display: grid;
+  text-transform: capitalize;
+}
+
+.weather-forecast-list article small,
+.weather-forecast-rain {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.weather-forecast-rain {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.weather-forecast-rain svg {
+  color: #8ec5ff;
+}
+
+.weather-forecast-empty {
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 22px;
+  text-align: center;
+}
+
 .notifications-modal {
   max-width: 460px;
 }
@@ -2238,6 +2398,7 @@ html:-webkit-full-screen .modal-backdrop {
 }
 
 .daily-story {
+  animation: storyModalIn 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
   aspect-ratio: 9 / 16;
   background:
     radial-gradient(circle at 20% 18%, rgba(47, 128, 237, 0.46), transparent 36%),
@@ -2720,6 +2881,11 @@ html:-webkit-full-screen .modal-backdrop {
   width: 10px;
 }
 
+.voice-status-closing {
+  animation: assistantBubbleOut 350ms cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
 .voice-wave {
   align-items: center;
   display: inline-flex;
@@ -2824,6 +2990,16 @@ html:-webkit-full-screen .modal-backdrop {
   overflow: hidden;
   padding: 18px;
   position: relative;
+  text-align: left;
+  transition: border-color 180ms ease, transform 180ms ease;
+  width: 100%;
+}
+
+.dashboard-today-card:hover,
+.dashboard-today-card:focus-visible {
+  border-color: color-mix(in srgb, var(--red) 58%, rgba(255, 255, 255, 0.24));
+  outline: 0;
+  transform: translateY(-2px);
 }
 
 .dashboard-today-copy {
@@ -4039,9 +4215,11 @@ html:fullscreen body {
   padding: 18px;
   position: absolute;
   z-index: 4;
+  animation: calendarDetailBackdropIn 220ms ease both;
 }
 
 .calendar-detail-card {
+  animation: calendarDetailCardIn 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
   background: rgba(24, 24, 24, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
@@ -4053,6 +4231,15 @@ html:fullscreen body {
   padding: 30px 24px 24px;
   position: relative;
   width: min(100%, 360px);
+}
+
+.calendar-detail-backdrop-closing {
+  animation: modalBackdropOut 220ms ease both;
+  pointer-events: none;
+}
+
+.calendar-detail-backdrop-closing .calendar-detail-card {
+  animation: modalPanelOut 220ms cubic-bezier(0.7, 0, 0.84, 0) both;
 }
 
 .calendar-detail-icon {
@@ -4239,6 +4426,19 @@ html:fullscreen body {
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes assistantBubbleOut {
+  0% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    filter: blur(5px);
+    opacity: 0;
+    transform: translateY(-7px) scale(0.98);
   }
 }
 
@@ -4671,6 +4871,54 @@ html:fullscreen body {
   }
 }
 
+@keyframes storyModalIn {
+  0% {
+    filter: blur(14px);
+    opacity: 0;
+    transform: translateY(24px) scale(0.92);
+  }
+  62% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(-3px) scale(1.01);
+  }
+  100% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes calendarDetailBackdropIn {
+  from {
+    backdrop-filter: blur(0);
+    background: rgba(0, 0, 0, 0);
+    opacity: 0;
+  }
+  to {
+    backdrop-filter: blur(16px);
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 1;
+  }
+}
+
+@keyframes calendarDetailCardIn {
+  0% {
+    filter: blur(10px);
+    opacity: 0;
+    transform: translateY(18px) scale(0.94);
+  }
+  65% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(-2px) scale(1.01);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-group(app-screen),
   ::view-transition-old(app-screen),
@@ -4697,7 +4945,10 @@ html:fullscreen body {
   .welcome-household-card,
   .welcome-household-loader span,
   .modal-backdrop,
-  .dark-modal {
+  .dark-modal,
+  .daily-story,
+  .calendar-detail-backdrop,
+  .calendar-detail-card {
     animation-duration: 1ms;
     animation-delay: 0ms;
   }
@@ -4858,6 +5109,25 @@ html:fullscreen body {
   .weather-copy strong {
     font-size: 0.82rem;
     max-width: 70px;
+  }
+
+  .weather-summary-current {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+    padding: 13px;
+  }
+
+  .weather-summary-main-icon {
+    height: 48px;
+    width: 48px;
+  }
+
+  .weather-humidity {
+    padding-left: 10px;
+  }
+
+  .weather-forecast-list article {
+    grid-template-columns: 54px 26px minmax(50px, 1fr) auto;
+    padding-inline: 10px;
   }
 
   .dashboard-grid {
