@@ -73,6 +73,7 @@ type Birthday = {
   name: string;
   date: string;
   residentId?: string;
+  profileResidentId?: string;
   visibility?: ItemVisibility;
 };
 
@@ -288,6 +289,7 @@ type BirthdayRow = {
   name: string;
   date: string;
   resident_id?: string | null;
+  profile_resident_id?: string | null;
   visibility?: string | null;
 };
 
@@ -699,6 +701,7 @@ function mapBirthday(row: BirthdayRow): Birthday {
     name: row.name,
     date: row.date,
     residentId: row.resident_id ?? undefined,
+    profileResidentId: row.profile_resident_id ?? undefined,
     visibility: row.visibility === "private" ? "private" : "household",
   };
 }
@@ -1037,13 +1040,47 @@ async function insertRemoteBirthday(householdId: string, birthday: Birthday) {
     name: birthday.name,
     date: birthday.date,
     resident_id: birthday.residentId ?? null,
+    profile_resident_id: birthday.profileResidentId ?? null,
     visibility: birthday.visibility ?? "household",
   };
   let { error } = await supabase.from("birthdays").insert(payload);
 
   if (error && (error.message.toLowerCase().includes("visibility") || error.message.toLowerCase().includes("resident_id"))) {
-    const { visibility: _visibility, resident_id: _residentId, ...fallbackPayload } = payload;
+    const {
+      visibility: _visibility,
+      resident_id: _residentId,
+      profile_resident_id: _profileResidentId,
+      ...fallbackPayload
+    } = payload;
     const fallbackResult = await supabase.from("birthdays").insert(fallbackPayload);
+    error = fallbackResult.error;
+  }
+
+  return !error;
+}
+
+async function updateRemoteBirthday(birthday: Birthday) {
+  if (!supabase) {
+    return false;
+  }
+
+  const payload = {
+    name: birthday.name,
+    date: birthday.date,
+    resident_id: birthday.residentId ?? null,
+    profile_resident_id: birthday.profileResidentId ?? null,
+    visibility: birthday.visibility ?? "household",
+  };
+  let { error } = await supabase.from("birthdays").update(payload).eq("id", birthday.id);
+
+  if (error && (error.message.toLowerCase().includes("visibility") || error.message.toLowerCase().includes("resident_id"))) {
+    const {
+      visibility: _visibility,
+      resident_id: _residentId,
+      profile_resident_id: _profileResidentId,
+      ...fallbackPayload
+    } = payload;
+    const fallbackResult = await supabase.from("birthdays").update(fallbackPayload).eq("id", birthday.id);
     error = fallbackResult.error;
   }
 
@@ -1221,6 +1258,24 @@ function formatBirthdayValue(value: string) {
   }
 
   return value;
+}
+
+function formatBirthdayDateInput(value?: string) {
+  if (!value) {
+    return "";
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const match = value.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (!match) {
+    return "";
+  }
+
+  const [, day, month] = match;
+  return `${new Date().getFullYear()}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 }
 
 function parseReminderDate(value: string) {
@@ -2931,6 +2986,7 @@ export default function HomePage() {
     const name = String(form.get("name") ?? "").trim();
     const role = String(form.get("role") ?? "").trim();
     const newPin = String(form.get("pin") ?? "").trim();
+    const birthdayDate = String(form.get("birthday") ?? "").trim();
     const theme = getProfileTheme(String(form.get("theme") ?? activeResident.theme ?? "default"));
 
     if (!name || newPin.length !== 4) {
@@ -2947,6 +3003,48 @@ export default function HomePage() {
     };
 
     await updateRemoteResident(updatedResident);
+
+    if (birthdayDate && appState.household) {
+      const existingBirthday = appState.birthdays.find(
+        (birthday) => birthday.profileResidentId === activeResident.id,
+      );
+      const birthday: Birthday = existingBirthday
+        ? {
+            ...existingBirthday,
+            name: updatedResident.name,
+            date: formatBirthdayValue(birthdayDate),
+          }
+        : {
+            id: crypto.randomUUID(),
+            name: updatedResident.name,
+            date: formatBirthdayValue(birthdayDate),
+            residentId: activeResident.id,
+            profileResidentId: activeResident.id,
+            visibility: "household",
+          };
+
+      if (existingBirthday) {
+        await updateRemoteBirthday(birthday);
+      } else {
+        await insertRemoteBirthday(appState.household.id, birthday);
+      }
+
+      setAppState((current) => ({
+        ...current,
+        birthdays: existingBirthday
+          ? current.birthdays.map((item) => (item.id === birthday.id ? birthday : item))
+          : [birthday, ...current.birthdays],
+      }));
+
+      if (!existingBirthday) {
+        recordActivity(
+          "birthday",
+          "adicionou o próprio aniversário para todos",
+          `${birthday.name} · ${birthday.date}`,
+        );
+      }
+    }
+
     setAppState((current) => ({
       ...current,
       residents: current.residents.map((resident) =>
@@ -3721,6 +3819,7 @@ export default function HomePage() {
         ) : null}
         {profileModal === "edit" ? (
           <EditResidentModal
+            birthday={appState.birthdays.find((birthday) => birthday.profileResidentId === activeResident.id)}
             photo={editResidentPhoto || activeResident.photo || ""}
             resident={activeResident}
             onClose={() => {
@@ -5334,6 +5433,7 @@ function VisibilityPicker({ defaultValue = "household" }: { defaultValue?: ItemV
 }
 
 function EditResidentModal({
+  birthday,
   photo,
   resident,
   onClose,
@@ -5342,6 +5442,7 @@ function EditResidentModal({
   onThemePreview,
   onSubmit,
 }: {
+  birthday?: Birthday;
   photo: string;
   resident: Resident;
   onClose: () => void;
@@ -5370,6 +5471,19 @@ function EditResidentModal({
         <div className="field">
           <label htmlFor="edit-resident-role">Descrição</label>
           <input id="edit-resident-role" name="role" defaultValue={resident.role} />
+        </div>
+        <div className="field">
+          <label htmlFor="edit-resident-birthday">Meu aniversário</label>
+          <div className="date-field">
+            <Cake size={18} />
+            <input
+              defaultValue={formatBirthdayDateInput(birthday?.date)}
+              id="edit-resident-birthday"
+              name="birthday"
+              type="date"
+            />
+          </div>
+          <small className="field-helper">Ao salvar, a data entra automaticamente nos aniversários da casa.</small>
         </div>
         <div className="field">
           <label htmlFor="edit-resident-pin">PIN de 4 dígitos</label>

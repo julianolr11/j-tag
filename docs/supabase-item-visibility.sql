@@ -17,6 +17,11 @@ references residents(id)
 on delete set null;
 
 alter table birthdays
+add column if not exists profile_resident_id uuid
+references residents(id)
+on delete cascade;
+
+alter table birthdays
 add column if not exists visibility text not null default 'household';
 
 alter table birthdays
@@ -29,3 +34,6 @@ check (visibility in ('private', 'household'));
 create index if not exists birthdays_resident_id_idx
 on birthdays (resident_id);
 
+create unique index if not exists birthdays_profile_resident_id_idx
+on birthdays (profile_resident_id)
+where profile_resident_id is not null;
