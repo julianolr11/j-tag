@@ -2065,11 +2065,13 @@ export default function HomePage() {
         return;
       }
 
-      void loadAccountHouseholds(nextUser.id).then((households) => {
-        if (isMounted) {
-          setAccountHouseholds(households);
-        }
-      });
+      window.setTimeout(() => {
+        void loadAccountHouseholds(nextUser.id).then((households) => {
+          if (isMounted) {
+            setAccountHouseholds(households);
+          }
+        });
+      }, 0);
     }) ?? { data: { subscription: null } };
 
     const timer = window.setTimeout(() => setShowSplash(false), 1350);
@@ -2854,9 +2856,22 @@ export default function HomePage() {
       return handleError.code === "23505" ? "Esse ID já está em uso." : handleError.message;
     }
 
-    const { data, error } = await supabase.auth.updateUser({
-      email: accountIdToTechnicalEmail(handle),
-    });
+    const updateResult = await Promise.race([
+      supabase.auth.updateUser({
+        email: accountIdToTechnicalEmail(handle),
+      }),
+      new Promise<{ data: { user: null }; error: Error }>((resolve) => {
+        window.setTimeout(
+          () =>
+            resolve({
+              data: { user: null },
+              error: new Error("A atualização demorou demais. Recarregue a página e tente novamente."),
+            }),
+          12_000,
+        );
+      }),
+    ]);
+    const { data, error } = updateResult;
     if (error) {
       return error.message;
     }
