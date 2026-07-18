@@ -1636,6 +1636,8 @@ html:-webkit-full-screen .modal-backdrop {
 }
 
 .pin-modal-backdrop {
+  backdrop-filter: none;
+  background: #050505;
   transition: height 220ms ease, top 220ms ease, padding 220ms ease;
 }
 
