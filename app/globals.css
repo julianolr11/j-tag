@@ -1638,12 +1638,13 @@ html:-webkit-full-screen .modal-backdrop {
 .pin-modal-backdrop {
   backdrop-filter: none;
   background: #050505;
-  transition: height 220ms ease, top 220ms ease, padding 220ms ease;
+  transition: padding 220ms ease;
 }
 
 .pin-modal-backdrop.pin-keyboard-open {
   --modal-inset-bottom: 10px;
   --modal-inset-top: max(10px, env(safe-area-inset-top));
+  align-items: flex-start;
 }
 
 .pin-modal-backdrop.pin-keyboard-open .pin-modal-panel {

@@ -6542,10 +6542,11 @@ function PinModal({
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
   const initialViewportHeightRef = useRef(0);
+  const pinPanelRef = useRef<HTMLElement | null>(null);
   const [pinViewport, setPinViewport] = useState<{
     height: number;
-    offsetTop: number;
     keyboardOpen: boolean;
+    panelTop: number;
   } | null>(null);
 
   useEffect(() => {
@@ -6562,8 +6563,10 @@ function PinModal({
       }
       setPinViewport({
         height: viewport.height,
-        offsetTop: viewport.offsetTop,
         keyboardOpen,
+        panelTop:
+          viewport.offsetTop +
+          Math.max(10, (viewport.height - (pinPanelRef.current?.offsetHeight ?? 420)) / 2),
       });
     };
 
@@ -6580,16 +6583,15 @@ function PinModal({
     <div
       className={`${backdropClassName} pin-modal-backdrop ${pinViewport?.keyboardOpen ? "pin-keyboard-open" : ""}`}
       style={
-        pinViewport
+        pinViewport?.keyboardOpen
           ? {
-              bottom: "auto",
-              height: `${pinViewport.height}px`,
-              top: `${pinViewport.offsetTop}px`,
+              paddingTop: `${pinViewport.panelTop}px`,
             }
           : undefined
       }
     >
       <section
+        ref={pinPanelRef}
         className="dark-modal pin-modal-panel"
         role="dialog"
         aria-modal="true"
