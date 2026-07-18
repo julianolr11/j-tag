@@ -3412,7 +3412,7 @@ export default function HomePage() {
                 onClick={() => setShowHouseholdInvite(true)}
                 aria-label="Convidar para o lar"
               >
-                <Users size={20} />
+                <UserPlus size={20} />
               </button>
               <button
                 className={`icon-glass-button voice-button ${isListening ? "listening" : ""}`}
@@ -3421,18 +3421,6 @@ export default function HomePage() {
                 aria-label="Assistente de voz"
               >
                 <Mic size={20} />
-              </button>
-              <button
-                className="icon-glass-button"
-                type="button"
-                onClick={() => {
-                  setEditResidentPhoto("");
-                  setThemePreview(getProfileTheme(activeResident.theme));
-                  setProfileModal("edit");
-                }}
-                aria-label="Editar perfil"
-              >
-                <Pencil size={20} />
               </button>
               <button
                 className={`icon-glass-button notification-button ${notifications.length ? "has-notifications" : ""}`}
@@ -3459,7 +3447,19 @@ export default function HomePage() {
           ) : null}
           <div className="dashboard-hero">
             <div className="inside-hero">
-              <Avatar resident={activeResident} variant="large" />
+              <button
+                className="profile-avatar-button"
+                type="button"
+                onClick={() => {
+                  setEditResidentPhoto("");
+                  setThemePreview(getProfileTheme(activeResident.theme));
+                  setProfileModal("edit");
+                }}
+                aria-label={`Editar perfil de ${activeResident.name}`}
+                title="Editar perfil"
+              >
+                <Avatar resident={activeResident} variant="large" />
+              </button>
               <div>
                 <p className="eyebrow">Dashboard do lar</p>
                 <h1>{appState.household.name}</h1>

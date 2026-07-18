@@ -2478,6 +2478,37 @@ html:-webkit-full-screen .modal-backdrop {
   position: relative;
 }
 
+.profile-avatar-button {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 0;
+  position: relative;
+}
+
+.profile-avatar-button .avatar-frame {
+  cursor: pointer;
+  transition: box-shadow 180ms ease, transform 180ms ease;
+}
+
+.profile-avatar-button:hover .avatar-frame,
+.profile-avatar-button:focus-visible .avatar-frame {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--red) 72%, #fff),
+    0 14px 34px rgba(0, 0, 0, 0.34);
+  transform: translateY(-2px) scale(1.025);
+}
+
+.profile-avatar-button:focus-visible {
+  outline: 0;
+}
+
+.profile-avatar-button:active .avatar-frame {
+  transform: scale(0.98);
+}
+
 .dashboard-hero {
   align-items: end;
   display: grid;
