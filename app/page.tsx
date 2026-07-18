@@ -19,12 +19,14 @@ import {
   Cloudy,
   FileText,
   Droplets,
+  Globe2,
   HeartPulse,
   History,
   House,
   Info,
   KeyRound,
   Lightbulb,
+  Link2,
   LockKeyhole,
   MapPin,
   MessageCircle,
@@ -394,6 +396,22 @@ type RecentHousehold = {
 
 type FamilyNetworkItem = RecentHousehold & {
   residents: Resident[];
+};
+
+type FamilyConnectionRequestRow = {
+  id: string;
+  requester_household_id: string;
+  target_household_id: string;
+  requested_by_resident_id: string;
+  status: "pending" | "accepted" | "rejected";
+  created_at: string;
+  updated_at: string;
+};
+
+type FamilyConnectionInvite = {
+  id: string;
+  family: FamilyNetworkItem;
+  createdAt: string;
 };
 
 type HouseholdMemberRow = {
@@ -1007,6 +1025,91 @@ async function loadRemoteStateByCode(code: string) {
   }
 
   return loadRemoteStateByHousehold(data as HouseholdRow);
+}
+
+async function loadFamilyConnections(householdId: string) {
+  if (!supabase) {
+    return { connected: [] as FamilyNetworkItem[], incoming: [] as FamilyConnectionInvite[] };
+  }
+
+  const { data: requestData, error } = await supabase
+    .from("family_connection_requests")
+    .select("*")
+    .or(`requester_household_id.eq.${householdId},target_household_id.eq.${householdId}`)
+    .in("status", ["pending", "accepted"]);
+
+  if (error) {
+    return { connected: [] as FamilyNetworkItem[], incoming: [] as FamilyConnectionInvite[] };
+  }
+
+  const requests = (requestData ?? []) as FamilyConnectionRequestRow[];
+  const otherHouseholdIds = Array.from(
+    new Set(
+      requests.map((request) =>
+        request.requester_household_id === householdId
+          ? request.target_household_id
+          : request.requester_household_id,
+      ),
+    ),
+  );
+
+  if (!otherHouseholdIds.length) {
+    return { connected: [] as FamilyNetworkItem[], incoming: [] as FamilyConnectionInvite[] };
+  }
+
+  const [householdsResult, residentsResult] = await Promise.all([
+    supabase.from("households").select("*").in("id", otherHouseholdIds),
+    supabase
+      .from("residents")
+      .select("id, household_id, name, role, pin, color, photo_url, theme")
+      .in("household_id", otherHouseholdIds),
+  ]);
+
+  const residentsByHousehold = ((residentsResult.data ?? []) as ResidentRow[]).reduce<Record<string, Resident[]>>(
+    (result, row) => {
+      result[row.household_id] = [...(result[row.household_id] ?? []), mapResident(row)];
+      return result;
+    },
+    {},
+  );
+  const familyById = ((householdsResult.data ?? []) as HouseholdRow[]).reduce<Record<string, FamilyNetworkItem>>(
+    (result, row) => {
+      result[row.id] = {
+        id: row.id,
+        name: row.name,
+        code: row.code,
+        lastAccessedAt: row.created_at,
+        residents: residentsByHousehold[row.id] ?? [],
+      };
+      return result;
+    },
+    {},
+  );
+
+  return {
+    connected: requests
+      .filter((request) => request.status === "accepted")
+      .map((request) =>
+        familyById[
+          request.requester_household_id === householdId
+            ? request.target_household_id
+            : request.requester_household_id
+        ],
+      )
+      .filter((family): family is FamilyNetworkItem => Boolean(family)),
+    incoming: requests
+      .filter(
+        (request) =>
+          request.status === "pending" &&
+          request.target_household_id === householdId,
+      )
+      .map((request) => ({
+        id: request.id,
+        family: familyById[request.requester_household_id],
+        createdAt: request.created_at,
+      }))
+      .filter((invite): invite is FamilyConnectionInvite => Boolean(invite.family)),
+  };
 }
 
 async function loadRemoteStateById(householdId: string) {
@@ -2132,6 +2235,8 @@ export default function HomePage() {
   const [recentHouseholds, setRecentHouseholds] = useState<RecentHousehold[]>([]);
   const [accountHouseholds, setAccountHouseholds] = useState<RecentHousehold[]>([]);
   const [networkResidents, setNetworkResidents] = useState<Record<string, Resident[]>>({});
+  const [connectedFamilies, setConnectedFamilies] = useState<FamilyNetworkItem[]>([]);
+  const [familyConnectionInvites, setFamilyConnectionInvites] = useState<FamilyConnectionInvite[]>([]);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [passwordRecoveryActive, setPasswordRecoveryActive] = useState(false);
@@ -2714,14 +2819,20 @@ export default function HomePage() {
       });
     }
 
-    return households.map((household) => ({
+    const ownedOrJoined = households.map((household) => ({
       ...household,
       residents:
         household.id === appState.household?.id
           ? appState.residents
           : networkResidents[household.id] ?? [],
     }));
-  }, [appState.household, appState.residents, networkResidents, quickAccessHouseholds]);
+    return [
+      ...ownedOrJoined,
+      ...connectedFamilies.filter(
+        (connected) => !ownedOrJoined.some((household) => household.id === connected.id),
+      ),
+    ];
+  }, [appState.household, appState.residents, connectedFamilies, networkResidents, quickAccessHouseholds]);
 
   useEffect(() => {
     if (!showFamilyNetwork || !supabase || !quickAccessHouseholds.length) {
@@ -2753,6 +2864,39 @@ export default function HomePage() {
       active = false;
     };
   }, [quickAccessHouseholds, showFamilyNetwork]);
+
+  useEffect(() => {
+    const householdId = appState.household?.id;
+    if (!householdId || !supabase) {
+      setConnectedFamilies([]);
+      setFamilyConnectionInvites([]);
+      return;
+    }
+
+    let active = true;
+    const refresh = async () => {
+      const result = await loadFamilyConnections(householdId);
+      if (active) {
+        setConnectedFamilies(result.connected);
+        setFamilyConnectionInvites(result.incoming);
+      }
+    };
+    void refresh();
+
+    const channel = supabase
+      .channel(`family-connections-${householdId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "family_connection_requests" },
+        () => void refresh(),
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [appState.household?.id]);
   const hasLocalHouseholdAccess = Boolean(appState.household);
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
@@ -2997,6 +3141,92 @@ export default function HomePage() {
     const households = await loadAccountHouseholds(userId);
     setAccountHouseholds(households);
     return households;
+  }
+
+  async function refreshCurrentFamilyConnections() {
+    if (!appState.household) {
+      return;
+    }
+    const result = await loadFamilyConnections(appState.household.id);
+    setConnectedFamilies(result.connected);
+    setFamilyConnectionInvites(result.incoming);
+  }
+
+  async function handleRequestFamilyConnection(inviteLink: string) {
+    if (!supabase || !appState.household || !activeResident) {
+      return "Não foi possível identificar a família atual.";
+    }
+
+    let code = "";
+    try {
+      const url = new URL(inviteLink.trim(), window.location.origin);
+      code = normalizeHouseholdCode(url.searchParams.get("lar") ?? "");
+    } catch {
+      code = "";
+    }
+    if (!code) {
+      code = normalizeHouseholdCode(inviteLink);
+    }
+    if (code.length < 4) {
+      return "Cole um link de convite válido.";
+    }
+
+    const { data: target, error: targetError } = await supabase
+      .from("households")
+      .select("id, name")
+      .eq("code", code)
+      .maybeSingle();
+    if (targetError || !target) {
+      return "Não encontrei uma família nesse link.";
+    }
+    if (target.id === appState.household.id) {
+      return "Essa já é a família atual.";
+    }
+
+    const { data: existing } = await supabase
+      .from("family_connection_requests")
+      .select("id, status")
+      .or(
+        `and(requester_household_id.eq.${appState.household.id},target_household_id.eq.${target.id}),and(requester_household_id.eq.${target.id},target_household_id.eq.${appState.household.id})`,
+      )
+      .in("status", ["pending", "accepted"])
+      .maybeSingle();
+    if (existing?.status === "accepted") {
+      return "Essas famílias já estão conectadas.";
+    }
+    if (existing?.status === "pending") {
+      return "Já existe um convite aguardando resposta.";
+    }
+
+    const { error } = await supabase.from("family_connection_requests").insert({
+      id: crypto.randomUUID(),
+      requester_household_id: appState.household.id,
+      target_household_id: target.id,
+      requested_by_resident_id: activeResident.id,
+      status: "pending",
+    });
+    if (error) {
+      return error.message.toLowerCase().includes("family_connection_requests")
+        ? "Execute o SQL de conexões no Supabase primeiro."
+        : "Não foi possível enviar o convite.";
+    }
+
+    await refreshCurrentFamilyConnections();
+    return null;
+  }
+
+  async function handleFamilyConnectionInvite(inviteId: string, accept: boolean) {
+    if (!supabase) {
+      return;
+    }
+    await supabase
+      .from("family_connection_requests")
+      .update({
+        status: accept ? "accepted" : "rejected",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", inviteId);
+    await refreshCurrentFamilyConnections();
   }
 
   function getPreferredResident(remoteState: AppState) {
@@ -4582,10 +4812,13 @@ export default function HomePage() {
               <em>{appState.residents.length === 1 ? "perfil na casa" : "perfis na casa"}</em>
             </button>
             <button className="dashboard-card dashboard-card-families" type="button" onClick={() => setShowFamilyNetwork(true)}>
+              {familyConnectionInvites.length ? (
+                <span className="family-card-invite-badge">{familyConnectionInvites.length}</span>
+              ) : null}
               <span className="dashboard-card-icon family-network-card-icon">
-                <Users size={20} />
+                <Globe2 size={20} />
               </span>
-              <small>Famílias</small>
+              <small>Rede da família</small>
               <strong>{familyNetworkItems.length}</strong>
               <em>{familyNetworkItems.length === 1 ? "lar na sua rede" : "lares conectados"}</em>
             </button>
@@ -4782,13 +5015,21 @@ export default function HomePage() {
           <FamilyNetworkModal
             currentHouseholdId={appState.household.id}
             families={familyNetworkItems}
+            invites={familyConnectionInvites}
             onClose={() => setShowFamilyNetwork(false)}
+            onInviteResponse={handleFamilyConnectionInvite}
             onOpenFamily={(family) => {
-              setShowFamilyNetwork(false);
-              if (family.id !== appState.household?.id) {
+              if (family.id === appState.household?.id) {
+                return;
+              }
+              if (quickAccessHouseholds.some((household) => household.id === family.id)) {
+                setShowFamilyNetwork(false);
                 void handleContinueHousehold(family);
+              } else {
+                showAssistantMessage(`${family.name} está conectada à sua rede, mas continua com acesso separado.`);
               }
             }}
+            onRequestConnection={handleRequestFamilyConnection}
           />
         ) : null}
         {showNotifications ? (
@@ -5162,15 +5403,25 @@ function formatActivityRelativeTime(value: string) {
 function FamilyNetworkModal({
   currentHouseholdId,
   families,
+  invites,
   onClose,
+  onInviteResponse,
   onOpenFamily,
+  onRequestConnection,
 }: {
   currentHouseholdId: string;
   families: FamilyNetworkItem[];
+  invites: FamilyConnectionInvite[];
   onClose: () => void;
+  onInviteResponse: (inviteId: string, accept: boolean) => void | Promise<void>;
   onOpenFamily: (family: FamilyNetworkItem) => void;
+  onRequestConnection: (inviteLink: string) => Promise<string | null>;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [showConnector, setShowConnector] = useState(false);
+  const [connectionLink, setConnectionLink] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [connectionError, setConnectionError] = useState("");
   const orderedFamilies = [
     ...families.filter((family) => family.id === currentHouseholdId),
     ...families.filter((family) => family.id !== currentHouseholdId),
@@ -5204,6 +5455,94 @@ function FamilyNetworkModal({
               : `${orderedFamilies.length} famílias ligadas à sua conta.`}
           </span>
         </div>
+        <div className="family-network-actions">
+          <button
+            className="family-connect-toggle"
+            type="button"
+            onClick={() => setShowConnector((current) => !current)}
+          >
+            <Link2 size={17} />
+            Conectar outra família
+          </button>
+          {invites.length ? (
+            <div className="family-invite-list">
+              <p>
+                <strong>Convites para conectar</strong>
+                <span>{invites.length}</span>
+              </p>
+              {invites.map((invite) => (
+                <article className="family-invite-card" key={invite.id}>
+                  <span className="family-invite-symbol">
+                    <Users size={18} />
+                  </span>
+                  <span>
+                    <strong>{invite.family.name}</strong>
+                    <small>quer conectar as famílias</small>
+                  </span>
+                  <button
+                    className="family-invite-reject"
+                    type="button"
+                    onClick={() => void onInviteResponse(invite.id, false)}
+                    aria-label={`Recusar conexão com ${invite.family.name}`}
+                  >
+                    <X size={16} />
+                  </button>
+                  <button
+                    className="family-invite-accept"
+                    type="button"
+                    onClick={() => void onInviteResponse(invite.id, true)}
+                    aria-label={`Aceitar conexão com ${invite.family.name}`}
+                  >
+                    <Check size={17} />
+                  </button>
+                </article>
+              ))}
+            </div>
+          ) : null}
+          {showConnector ? (
+            <form
+              className="family-connect-form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setConnectionError("");
+                setConnectionStatus("sending");
+                const error = await onRequestConnection(connectionLink);
+                if (error) {
+                  setConnectionError(error);
+                  setConnectionStatus("idle");
+                  return;
+                }
+                setConnectionStatus("sent");
+                setConnectionLink("");
+              }}
+            >
+              <label htmlFor="family-connection-link">Link de convite da outra família</label>
+              <div>
+                <input
+                  id="family-connection-link"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://…?lar=ABC123"
+                  value={connectionLink}
+                  onChange={(event) => {
+                    setConnectionLink(event.target.value);
+                    setConnectionStatus("idle");
+                    setConnectionError("");
+                  }}
+                  required
+                />
+                <button type="submit" disabled={connectionStatus === "sending"}>
+                  <Send size={17} />
+                  {connectionStatus === "sending" ? "Enviando" : "Conectar"}
+                </button>
+              </div>
+              {connectionError ? <small className="family-connect-error">{connectionError}</small> : null}
+              {connectionStatus === "sent" ? (
+                <small className="family-connect-success">Convite enviado. A outra família precisa aceitar.</small>
+              ) : null}
+            </form>
+          ) : null}
+        </div>
         <div className={`family-network-canvas ${orderedFamilies.length === 1 ? "family-network-single" : ""}`}>
           <svg className="family-network-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             {center
@@ -5230,27 +5569,31 @@ function FamilyNetworkModal({
                 style={{ "--family-x": `${x}%`, "--family-y": `${y}%`, "--family-index": index } as CSSProperties}
                 aria-label={`${family.name}, ${family.residents.length} perfis`}
               >
-                <span className="family-network-core">
-                  <Users size={index === 0 ? 31 : 27} />
-                </span>
-                <span className="family-network-orbit" aria-hidden="true">
-                  {previews.map((resident, residentIndex) => (
-                    <span
-                      className={`family-network-avatar family-network-avatar-${residentIndex + 1}`}
-                      key={resident.id}
-                      style={{ backgroundColor: resident.color }}
-                    >
-                      {resident.photo ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={resident.photo} alt="" loading="lazy" decoding="async" />
-                      ) : (
-                        resident.name.slice(0, 1).toUpperCase()
-                      )}
-                    </span>
-                  ))}
-                  {family.residents.length > 3 ? (
-                    <small className="family-network-extra">+{family.residents.length - 3}</small>
-                  ) : null}
+                <span className="family-network-visual">
+                  <span className="family-network-core">
+                    <Users size={index === 0 ? 31 : 27} />
+                  </span>
+                  <span className="family-network-orbit" aria-hidden="true">
+                    {previews.map((resident, residentIndex) => (
+                      <span
+                        className={`family-network-avatar family-network-avatar-${residentIndex + 1}`}
+                        key={resident.id}
+                        style={{ backgroundColor: resident.color }}
+                      >
+                        <span>
+                          {resident.photo ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={resident.photo} alt="" loading="lazy" decoding="async" />
+                          ) : (
+                            resident.name.slice(0, 1).toUpperCase()
+                          )}
+                        </span>
+                      </span>
+                    ))}
+                    {family.residents.length > 3 ? (
+                      <small className="family-network-extra">+{family.residents.length - 3}</small>
+                    ) : null}
+                  </span>
                 </span>
                 <strong>{family.name}</strong>
                 <small>{index === 0 ? "Família atual" : `${family.residents.length} perfis`}</small>
