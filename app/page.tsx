@@ -244,6 +244,7 @@ const RECENT_HOUSEHOLDS_KEY = "jtag-recent-households-v1";
 const LAST_AUTH_EMAIL_KEY = "jtag-last-auth-email-v1";
 const LAST_AUTH_ID_KEY = "jtag-last-auth-id-v1";
 const REMEMBER_AUTH_KEY = "jtag-remember-auth-v1";
+const ACCOUNT_EMAIL_DOMAIN = "j-tag-indol.vercel.app";
 const DISMISSED_NOTIFICATIONS_KEY = "jtag-dismissed-notifications-v1";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -267,7 +268,7 @@ function normalizeAccountId(value: string) {
 }
 
 function accountIdToTechnicalEmail(value: string) {
-  return `${normalizeAccountId(value)}@accounts.jtag.app`;
+  return `${normalizeAccountId(value)}@${ACCOUNT_EMAIL_DOMAIN}`;
 }
 
 type CalendarViewMode = "calendar" | "list";
@@ -3879,7 +3880,7 @@ export default function HomePage() {
     );
   }
 
-  if (authUser?.email && !authUser.email.endsWith("@accounts.jtag.app")) {
+  if (authUser?.email && !authUser.email.endsWith(`@${ACCOUNT_EMAIL_DOMAIN}`)) {
     return (
       <main className={screenShellClassName}>
         <LegacyAccountMigrationScreen email={authUser.email} onSubmit={handleMigrateLegacyAccount} />
@@ -4258,7 +4259,7 @@ export default function HomePage() {
         {profileModal === "edit" ? (
           <EditResidentModal
             accountEmail={authUser?.email ?? ""}
-            isAnonymousAccount={Boolean(authUser?.email?.endsWith("@accounts.jtag.app"))}
+            isAnonymousAccount={Boolean(authUser?.email?.endsWith(`@${ACCOUNT_EMAIL_DOMAIN}`))}
             birthday={appState.birthdays.find((birthday) => birthday.profileResidentId === activeResident.id)}
             photo={editResidentPhoto || activeResident.photo || ""}
             resident={activeResident}
