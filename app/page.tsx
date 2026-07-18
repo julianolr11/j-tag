@@ -65,13 +65,18 @@ type Reminder = {
   date: string;
   icon?: ReminderIcon;
   recurrence?: ReminderRecurrence;
+  visibility?: ItemVisibility;
 };
 
 type Birthday = {
   id: string;
   name: string;
   date: string;
+  residentId?: string;
+  visibility?: ItemVisibility;
 };
+
+type ItemVisibility = "private" | "household";
 
 type EmergencyContact = {
   id: string;
@@ -274,6 +279,7 @@ type ReminderRow = {
   date: string;
   icon: string;
   recurrence?: string | null;
+  visibility?: string | null;
 };
 
 type BirthdayRow = {
@@ -281,6 +287,8 @@ type BirthdayRow = {
   household_id: string;
   name: string;
   date: string;
+  resident_id?: string | null;
+  visibility?: string | null;
 };
 
 type EmergencyContactRow = {
@@ -681,6 +689,7 @@ function mapReminder(row: ReminderRow): Reminder {
       row.recurrence && isReminderRecurrence(row.recurrence)
         ? row.recurrence
         : undefined,
+    visibility: row.visibility === "private" ? "private" : "household",
   });
 }
 
@@ -689,6 +698,8 @@ function mapBirthday(row: BirthdayRow): Birthday {
     id: row.id,
     name: row.name,
     date: row.date,
+    residentId: row.resident_id ?? undefined,
+    visibility: row.visibility === "private" ? "private" : "household",
   };
 }
 
@@ -958,11 +969,18 @@ async function insertRemoteReminder(householdId: string, reminder: Reminder) {
     date: reminder.date,
     icon: reminder.icon ?? "general",
     recurrence: reminder.recurrence ?? null,
+    visibility: reminder.visibility ?? "household",
   };
   let { error } = await supabase.from("reminders").insert(payload);
 
+  if (error && error.message.toLowerCase().includes("visibility")) {
+    const { visibility: _visibility, ...fallbackPayload } = payload;
+    const fallbackResult = await supabase.from("reminders").insert(fallbackPayload);
+    error = fallbackResult.error;
+  }
+
   if (error && error.message.toLowerCase().includes("recurrence")) {
-    const { recurrence: _recurrence, ...fallbackPayload } = payload;
+    const { recurrence: _recurrence, visibility: _visibility, ...fallbackPayload } = payload;
     const fallbackResult = await supabase.from("reminders").insert(fallbackPayload);
     error = fallbackResult.error;
   }
@@ -980,14 +998,24 @@ async function updateRemoteReminder(reminder: Reminder) {
     date: reminder.date,
     icon: reminder.icon ?? "general",
     recurrence: reminder.recurrence ?? null,
+    visibility: reminder.visibility ?? "household",
   };
   let { error } = await supabase
     .from("reminders")
     .update(payload)
     .eq("id", reminder.id);
 
+  if (error && error.message.toLowerCase().includes("visibility")) {
+    const { visibility: _visibility, ...fallbackPayload } = payload;
+    const fallbackResult = await supabase
+      .from("reminders")
+      .update(fallbackPayload)
+      .eq("id", reminder.id);
+    error = fallbackResult.error;
+  }
+
   if (error && error.message.toLowerCase().includes("recurrence")) {
-    const { recurrence: _recurrence, ...fallbackPayload } = payload;
+    const { recurrence: _recurrence, visibility: _visibility, ...fallbackPayload } = payload;
     const fallbackResult = await supabase
       .from("reminders")
       .update(fallbackPayload)
@@ -1003,12 +1031,21 @@ async function insertRemoteBirthday(householdId: string, birthday: Birthday) {
     return false;
   }
 
-  const { error } = await supabase.from("birthdays").insert({
+  const payload = {
     id: birthday.id,
     household_id: householdId,
     name: birthday.name,
     date: birthday.date,
-  });
+    resident_id: birthday.residentId ?? null,
+    visibility: birthday.visibility ?? "household",
+  };
+  let { error } = await supabase.from("birthdays").insert(payload);
+
+  if (error && (error.message.toLowerCase().includes("visibility") || error.message.toLowerCase().includes("resident_id"))) {
+    const { visibility: _visibility, resident_id: _residentId, ...fallbackPayload } = payload;
+    const fallbackResult = await supabase.from("birthdays").insert(fallbackPayload);
+    error = fallbackResult.error;
+  }
 
   return !error;
 }
@@ -2150,10 +2187,21 @@ export default function HomePage() {
       return [];
     }
 
-    return appState.reminders.filter((item) => item.residentId === activeResident.id);
+    return appState.reminders.filter(
+      (item) => item.residentId === activeResident.id || item.visibility !== "private",
+    );
   }, [activeResident, appState.reminders]);
   const reminderPreview = useMemo(() => getReminderPreview(activeReminders), [activeReminders]);
-  const birthdayPreview = useMemo(() => getBirthdayPreview(appState.birthdays), [appState.birthdays]);
+  const visibleBirthdays = useMemo(() => {
+    if (!activeResident) {
+      return [];
+    }
+
+    return appState.birthdays.filter(
+      (item) => item.residentId === activeResident.id || item.visibility !== "private",
+    );
+  }, [activeResident, appState.birthdays]);
+  const birthdayPreview = useMemo(() => getBirthdayPreview(visibleBirthdays), [visibleBirthdays]);
   const dashboardReminders = useMemo(() => {
     const today = startOfToday();
     const dated = activeReminders
@@ -2714,6 +2762,7 @@ export default function HomePage() {
     const date = String(form.get("date") ?? "").trim();
     const icon = String(form.get("icon") ?? "general");
     const recurrence = String(form.get("recurrence") ?? "");
+    const visibility = String(form.get("visibility") ?? "household");
 
     if (!text) {
       return;
@@ -2726,6 +2775,7 @@ export default function HomePage() {
       date: date || "Hoje",
       icon: isReminderIcon(icon) ? icon : "general",
       recurrence: isReminderRecurrence(recurrence) ? recurrence : undefined,
+      visibility: visibility === "private" ? "private" : "household",
     };
 
     await insertRemoteReminder(appState.household.id, reminder);
@@ -2733,13 +2783,15 @@ export default function HomePage() {
       ...current,
       reminders: [reminder, ...current.reminders],
     }));
-    recordActivity(
-      "reminder",
-      "adicionou um lembrete",
-      `${reminder.text} · ${formatDateLabel(reminder.date)}`,
-      undefined,
-      reminder.id,
-    );
+    if (reminder.visibility !== "private") {
+      recordActivity(
+        "reminder",
+        "adicionou um lembrete para todos",
+        `${reminder.text} · ${formatDateLabel(reminder.date)}`,
+        undefined,
+        reminder.id,
+      );
+    }
     setProfileModal(null);
   }
 
@@ -2754,6 +2806,7 @@ export default function HomePage() {
     const date = String(form.get("date") ?? "").trim();
     const icon = String(form.get("icon") ?? "general");
     const recurrence = String(form.get("recurrence") ?? "");
+    const visibility = String(form.get("visibility") ?? "household");
 
     if (!text) {
       return;
@@ -2765,6 +2818,7 @@ export default function HomePage() {
       date: date || "Hoje",
       icon: isReminderIcon(icon) ? icon : "general",
       recurrence: isReminderRecurrence(recurrence) ? recurrence : undefined,
+      visibility: visibility === "private" ? "private" : "household",
     };
 
     await updateRemoteReminder(updatedReminder);
@@ -2810,12 +2864,13 @@ export default function HomePage() {
 
   async function handleAddBirthday(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!appState.household) {
+    if (!activeResident || !appState.household) {
       return;
     }
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name") ?? "").trim();
     const date = String(form.get("date") ?? "").trim();
+    const visibility = String(form.get("visibility") ?? "household");
 
     if (!name || !date) {
       return;
@@ -2825,6 +2880,8 @@ export default function HomePage() {
       id: crypto.randomUUID(),
       name,
       date: formatBirthdayValue(date),
+      residentId: activeResident.id,
+      visibility: visibility === "private" ? "private" : "household",
     };
 
     await insertRemoteBirthday(appState.household.id, birthday);
@@ -2832,7 +2889,9 @@ export default function HomePage() {
       ...current,
       birthdays: [birthday, ...current.birthdays],
     }));
-    recordActivity("birthday", "adicionou um aniversário", `${birthday.name} · ${birthday.date}`);
+    if (birthday.visibility !== "private") {
+      recordActivity("birthday", "adicionou um aniversário para todos", `${birthday.name} · ${birthday.date}`);
+    }
     setProfileModal(null);
   }
 
@@ -3169,6 +3228,7 @@ export default function HomePage() {
         text,
         date,
       }),
+      visibility: "household",
     };
 
     await insertRemoteReminder(appState.household.id, reminder);
@@ -3178,7 +3238,7 @@ export default function HomePage() {
     }));
     recordActivity(
       "reminder",
-      "adicionou um lembrete por voz",
+      "adicionou um lembrete por voz para todos",
       `${reminder.text} · ${formatDateLabel(reminder.date)}`,
       undefined,
       reminder.id,
@@ -3223,7 +3283,7 @@ export default function HomePage() {
   }
 
   async function addBirthdayFromVoice(name: string, date: string) {
-    if (!appState.household) {
+    if (!activeResident || !appState.household) {
       setProfileModal("birthday");
       return;
     }
@@ -3232,6 +3292,8 @@ export default function HomePage() {
       id: crypto.randomUUID(),
       name,
       date,
+      residentId: activeResident.id,
+      visibility: "household",
     };
 
     await insertRemoteBirthday(appState.household.id, birthday);
@@ -3239,7 +3301,7 @@ export default function HomePage() {
       ...current,
       birthdays: [birthday, ...current.birthdays],
     }));
-    recordActivity("birthday", "adicionou um aniversário por voz", `${birthday.name} · ${birthday.date}`);
+    recordActivity("birthday", "adicionou um aniversário por voz para todos", `${birthday.name} · ${birthday.date}`);
     showAssistantMessage(`Pronto, cadastrei o aniversário de ${name}.`);
   }
 
@@ -3684,18 +3746,20 @@ export default function HomePage() {
             onDelete={(item) => void handleDeleteReminder(item as Reminder)}
             onEdit={(item) => handleEditReminder(item as Reminder)}
             onComplete={(item) => void handleCompleteReminder(item as Reminder)}
+            canManage={(item) => (item as Reminder).residentId === activeResident.id}
             title="Calendário de lembretes"
           />
         ) : null}
         {profileModal === "birthdayCalendar" ? (
           <CalendarModal
-            items={appState.birthdays}
+            items={visibleBirthdays}
             kind="birthday"
             onClose={() => setProfileModal(null)}
             onCreate={() => setProfileModal("birthday")}
             onDelete={(item) => void handleDeleteBirthday(item as Birthday)}
             onEdit={() => undefined}
             onComplete={() => undefined}
+            canManage={(item) => !(item as Birthday).residentId || (item as Birthday).residentId === activeResident.id}
             title="Calendário de aniversários"
           />
         ) : null}
@@ -5160,6 +5224,7 @@ function ReminderModal({
             />
           </div>
         </div>
+        <VisibilityPicker defaultValue={reminder?.visibility ?? "household"} />
         <div className="reminder-repeat-section">
           <label className="reminder-repeat-toggle">
             <span>
@@ -5232,12 +5297,39 @@ function BirthdayModal({
             <input id="birthday-date" name="date" type="date" required />
           </div>
         </div>
+        <VisibilityPicker />
         <button className="primary-action" type="submit">
           <Check size={18} />
           Salvar aniversário
         </button>
       </form>
     </div>
+  );
+}
+
+function VisibilityPicker({ defaultValue = "household" }: { defaultValue?: ItemVisibility }) {
+  return (
+    <fieldset className="visibility-picker">
+      <legend>Quem pode ver</legend>
+      <div className="visibility-options">
+        <label>
+          <input defaultChecked={defaultValue === "household"} name="visibility" type="radio" value="household" />
+          <span>
+            <Users size={18} />
+            <strong>Todos da casa</strong>
+            <small>Visível nos outros perfis</small>
+          </span>
+        </label>
+        <label>
+          <input defaultChecked={defaultValue === "private"} name="visibility" type="radio" value="private" />
+          <span>
+            <LockKeyhole size={18} />
+            <strong>Só eu</strong>
+            <small>Somente neste perfil</small>
+          </span>
+        </label>
+      </div>
+    </fieldset>
   );
 }
 
@@ -5387,6 +5479,7 @@ function CompleteReminderSlider({ onComplete }: { onComplete: () => void }) {
 }
 
 function CalendarModal({
+  canManage,
   items,
   kind,
   onClose,
@@ -5396,6 +5489,7 @@ function CalendarModal({
   onEdit,
   title,
 }: {
+  canManage: (item: Reminder | Birthday) => boolean;
   items: Array<Reminder | Birthday>;
   kind: "reminder" | "birthday";
   onClose: () => void;
@@ -5417,6 +5511,7 @@ function CalendarModal({
     month: "long",
     year: "numeric",
   });
+  const canManageSelectedItem = selectedCalendarItem ? canManage(selectedCalendarItem) : false;
 
   const calendarItems = items
     .map((item) => {
@@ -5746,10 +5841,11 @@ function CalendarModal({
                   </span>
                 ) : null}
               </div>
-              {kind === "reminder" ? (
+              {kind === "reminder" && canManageSelectedItem ? (
                 <CompleteReminderSlider onComplete={handleCompleteSelectedItem} />
               ) : null}
-              <div className="calendar-detail-actions">
+              {canManageSelectedItem ? (
+                <div className="calendar-detail-actions">
                 {kind === "reminder" ? (
                   <button className="calendar-edit-button" type="button" onClick={handleEditSelectedItem}>
                     <Pencil size={17} />
@@ -5760,7 +5856,13 @@ function CalendarModal({
                   <Trash2 size={17} />
                   Excluir
                 </button>
-              </div>
+                </div>
+              ) : (
+                <span className="calendar-detail-recurrence">
+                  <LockKeyhole size={14} />
+                  Visível para a casa · somente o autor pode alterar
+                </span>
+              )}
             </article>
           </div>
         ) : null}

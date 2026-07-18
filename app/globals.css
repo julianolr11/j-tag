@@ -1567,6 +1567,89 @@ html:-webkit-full-screen .modal-backdrop {
   gap: 12px;
 }
 
+.visibility-picker {
+  border: 0;
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.visibility-picker legend {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 9px;
+  text-transform: uppercase;
+}
+
+.visibility-options {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.visibility-options label {
+  cursor: pointer;
+  min-width: 0;
+  position: relative;
+}
+
+.visibility-options input {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.visibility-options label > span {
+  align-content: start;
+  background: rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  min-height: 96px;
+  padding: 13px;
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.visibility-options label > span svg {
+  color: var(--muted);
+}
+
+.visibility-options strong,
+.visibility-options small {
+  display: block;
+}
+
+.visibility-options strong {
+  font-size: 0.88rem;
+}
+
+.visibility-options small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.visibility-options input:checked + span {
+  background: color-mix(in srgb, var(--red) 16%, rgba(255, 255, 255, 0.08));
+  border-color: color-mix(in srgb, var(--red) 60%, rgba(255, 255, 255, 0.2));
+}
+
+.visibility-options input:checked + span svg {
+  color: color-mix(in srgb, var(--red) 78%, #fff);
+}
+
+.visibility-options input:focus-visible + span {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 24%, transparent);
+}
+
+.visibility-options label:hover > span {
+  transform: translateY(-1px);
+}
+
 .reminder-repeat-toggle {
   align-items: center;
   background: rgba(255, 255, 255, 0.07);
