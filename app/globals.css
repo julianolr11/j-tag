@@ -3000,7 +3000,7 @@ html:-webkit-full-screen .modal-backdrop {
   gap: 14px;
   grid-template-columns: 44px minmax(0, 1fr) auto;
   min-height: 94px;
-  padding: 16px 66px 16px 16px;
+  padding: 16px;
   position: relative;
   transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
 }
@@ -3017,11 +3017,6 @@ html:-webkit-full-screen .modal-backdrop {
   border-color: rgba(255, 255, 255, 0.3);
   outline: 0;
   transform: translateY(-2px);
-}
-
-.daily-message-add {
-  right: 14px;
-  top: 14px;
 }
 
 .daily-message-icon {
@@ -3067,6 +3062,64 @@ html:-webkit-full-screen .modal-backdrop {
 .activity-message-thumbnail {
   border: 1px solid rgba(255, 255, 255, 0.22);
   object-fit: cover;
+}
+
+.daily-message-composer {
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  margin-top: 2px;
+}
+
+.daily-message-composer > input {
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: var(--text);
+  min-height: 44px;
+  min-width: 0;
+  outline: 0;
+  padding: 0 13px;
+}
+
+.daily-message-composer > input:focus {
+  border-color: color-mix(in srgb, var(--blue) 58%, rgba(255, 255, 255, 0.25));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 18%, transparent);
+}
+
+.daily-message-camera {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: #a9ceff;
+  cursor: pointer;
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  width: 44px;
+}
+
+.daily-message-camera > input {
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  width: 100%;
+  z-index: 2;
+}
+
+.daily-message-camera img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.daily-message-camera.has-photo {
+  border-color: #9ff0bd;
+  box-shadow: 0 0 0 2px rgba(53, 208, 127, 0.18);
 }
 
 .daily-message-thumbnail {

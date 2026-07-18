@@ -6,11 +6,28 @@ create table if not exists daily_messages (
   resident_id uuid not null references residents(id) on delete cascade,
   message text not null check (char_length(message) between 1 and 240),
   photo_url text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null default (now() + interval '24 hours')
 );
+
+alter table daily_messages
+add column if not exists expires_at timestamptz;
+
+update daily_messages
+set expires_at = created_at + interval '24 hours'
+where expires_at is null;
+
+alter table daily_messages
+alter column expires_at set default (now() + interval '24 hours');
+
+alter table daily_messages
+alter column expires_at set not null;
 
 create index if not exists daily_messages_household_created_at_idx
 on daily_messages (household_id, created_at desc);
+
+create index if not exists daily_messages_expires_at_idx
+on daily_messages (expires_at);
 
 alter table daily_messages enable row level security;
 
@@ -50,4 +67,3 @@ begin
   end if;
 end
 $$;
-

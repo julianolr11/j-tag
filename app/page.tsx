@@ -115,6 +115,7 @@ type DailyMessage = {
   message: string;
   photo?: string;
   createdAt: string;
+  expiresAt?: string;
 };
 
 type Household = {
@@ -341,6 +342,7 @@ type DailyMessageRow = {
   message: string;
   photo_url: string | null;
   created_at: string;
+  expires_at?: string | null;
 };
 
 const reminderIconOptions: Array<{
@@ -770,7 +772,14 @@ function mapDailyMessage(row: DailyMessageRow): DailyMessage {
     message: row.message,
     photo: row.photo_url ?? undefined,
     createdAt: row.created_at,
+    expiresAt: row.expires_at ?? undefined,
   };
+}
+
+function getDailyMessageExpiry(message: DailyMessage) {
+  return message.expiresAt
+    ? new Date(message.expiresAt).getTime()
+    : new Date(message.createdAt).getTime() + 24 * 60 * 60 * 1000;
 }
 
 async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppState | null> {
@@ -785,7 +794,13 @@ async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppS
     supabase.from("emergency_contacts").select("*").eq("household_id", household.id).order("created_at"),
     supabase.from("location_shares").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
     supabase.from("activity_events").select("*").eq("household_id", household.id).order("created_at", { ascending: false }).limit(100),
-    supabase.from("daily_messages").select("*").eq("household_id", household.id).order("created_at", { ascending: false }).limit(30),
+    supabase
+      .from("daily_messages")
+      .select("*")
+      .eq("household_id", household.id)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(30),
   ]);
 
   if (residentsResult.error || remindersResult.error || birthdaysResult.error || contactsResult.error) {
@@ -1182,6 +1197,7 @@ async function insertRemoteDailyMessage(householdId: string, message: DailyMessa
     message: message.message,
     photo_url: message.photo ?? null,
     created_at: message.createdAt,
+    expires_at: message.expiresAt ?? new Date(new Date(message.createdAt).getTime() + 24 * 60 * 60 * 1000).toISOString(),
   });
 
   return !error;
@@ -1900,9 +1916,10 @@ export default function HomePage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [todayWeather, setTodayWeather] = useState<TodayWeather>(() => getDefaultWeather());
   const [isNightNow, setIsNightNow] = useState(() => isNightTime());
+  const [dailyMessageNow, setDailyMessageNow] = useState(() => Date.now());
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
   const [profileModal, setProfileModal] = useState<
-    "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | "timeline" | "dailyMessage" | null
+    "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | "timeline" | null
   >(null);
   const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
   const [newResidentPhoto, setNewResidentPhoto] = useState("");
@@ -1913,6 +1930,8 @@ export default function HomePage() {
   const [isListening, setIsListening] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState("");
+  const [dailyMessageDraft, setDailyMessageDraft] = useState("");
+  const [dailyMessagePhoto, setDailyMessagePhoto] = useState("");
   const pendingVoiceHandlerRef = useRef<((transcript: string) => void) | null>(null);
   const activeRecognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const speechFallbackTimerRef = useRef<number | null>(null);
@@ -2027,6 +2046,11 @@ export default function HomePage() {
     return () => {
       window.clearInterval(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setDailyMessageNow(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -2330,7 +2354,11 @@ export default function HomePage() {
     );
   }, [activeResident, appState.birthdays]);
   const birthdayPreview = useMemo(() => getBirthdayPreview(visibleBirthdays), [visibleBirthdays]);
-  const latestDailyMessage = appState.dailyMessages[0];
+  const activeDailyMessages = useMemo(
+    () => appState.dailyMessages.filter((message) => getDailyMessageExpiry(message) > dailyMessageNow),
+    [appState.dailyMessages, dailyMessageNow],
+  );
+  const latestDailyMessage = activeDailyMessages[0];
   const dashboardReminders = useMemo(() => {
     const today = startOfToday();
     const dated = activeReminders
@@ -2462,6 +2490,7 @@ export default function HomePage() {
       message: messageText.trim(),
       photo,
       createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     };
 
     await insertRemoteDailyMessage(appState.household.id, message);
@@ -2478,6 +2507,21 @@ export default function HomePage() {
       message.id,
     );
     setProfileModal(null);
+  }
+
+  function handleDailyMessagePhoto(file?: File) {
+    if (!file) {
+      return;
+    }
+
+    if (file.size > 3 * 1024 * 1024) {
+      showAssistantMessage("Escolha uma foto de até 3 MB.", false);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => setDailyMessagePhoto(String(reader.result ?? ""));
+    reader.readAsDataURL(file);
   }
 
   function handleOpenNotification(notification: AppNotification) {
@@ -3800,23 +3844,16 @@ export default function HomePage() {
             tabIndex={latestDailyMessage ? 0 : undefined}
             onClick={() => latestDailyMessage && setSelectedDailyMessage(latestDailyMessage)}
             onKeyDown={(event) => {
-              if (latestDailyMessage && (event.key === "Enter" || event.key === " ")) {
+              if (
+                event.target === event.currentTarget &&
+                latestDailyMessage &&
+                (event.key === "Enter" || event.key === " ")
+              ) {
                 event.preventDefault();
                 setSelectedDailyMessage(latestDailyMessage);
               }
             }}
           >
-            <button
-              className="dashboard-card-add daily-message-add"
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setProfileModal("dailyMessage");
-              }}
-              aria-label="Adicionar mensagem do dia"
-            >
-              <Plus size={18} />
-            </button>
             <span className="daily-message-icon">
               <MessageCircle size={20} />
             </span>
@@ -3833,6 +3870,40 @@ export default function HomePage() {
               // eslint-disable-next-line @next/next/no-img-element
               <img className="daily-message-thumbnail" src={latestDailyMessage.photo} alt="" />
             ) : null}
+            <form
+              className="daily-message-composer"
+              onClick={(event) => event.stopPropagation()}
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!dailyMessageDraft.trim()) {
+                  return;
+                }
+                void handleAddDailyMessage(dailyMessageDraft, dailyMessagePhoto || undefined);
+                setDailyMessageDraft("");
+                setDailyMessagePhoto("");
+              }}
+            >
+              <input
+                aria-label="Escrever mensagem do dia"
+                maxLength={240}
+                placeholder="Escreva uma mensagem e pressione Enter"
+                value={dailyMessageDraft}
+                onChange={(event) => setDailyMessageDraft(event.target.value)}
+              />
+              <label className={`daily-message-camera ${dailyMessagePhoto ? "has-photo" : ""}`} aria-label="Adicionar foto">
+                <input
+                  accept="image/*"
+                  type="file"
+                  onChange={(event) => handleDailyMessagePhoto(event.target.files?.[0])}
+                />
+                {dailyMessagePhoto ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={dailyMessagePhoto} alt="" />
+                ) : (
+                  <Camera size={20} />
+                )}
+              </label>
+            </form>
           </article>
 
           <div className="dashboard-grid">
@@ -3960,9 +4031,6 @@ export default function HomePage() {
         {profileModal === "birthday" ? (
           <BirthdayModal onClose={() => setProfileModal(null)} onSubmit={handleAddBirthday} />
         ) : null}
-        {profileModal === "dailyMessage" ? (
-          <DailyMessageModal onClose={() => setProfileModal(null)} onSubmit={handleAddDailyMessage} />
-        ) : null}
         {profileModal === "edit" ? (
           <EditResidentModal
             birthday={appState.birthdays.find((birthday) => birthday.profileResidentId === activeResident.id)}
@@ -4011,7 +4079,7 @@ export default function HomePage() {
         {profileModal === "timeline" ? (
           <ActivityTimelineModal
             events={appState.activityEvents}
-            messages={appState.dailyMessages}
+            messages={activeDailyMessages}
             residents={appState.residents}
             onClose={() => setProfileModal(null)}
             onOpenLocation={(shareId) => {
@@ -4026,7 +4094,7 @@ export default function HomePage() {
               setProfileModal("reminderCalendar");
             }}
             onOpenMessage={(messageId) => {
-              const message = appState.dailyMessages.find((item) => item.id === messageId);
+              const message = activeDailyMessages.find((item) => item.id === messageId);
               if (message) {
                 setProfileModal(null);
                 setSelectedDailyMessage(message);
@@ -4529,6 +4597,17 @@ function DailyMessageStoryModal({
   onClose: () => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
+
+  useEffect(() => {
+    const remainingTime = getDailyMessageExpiry(message) - Date.now();
+    if (remainingTime <= 0) {
+      onClose();
+      return;
+    }
+
+    const timer = window.setTimeout(onClose, remainingTime);
+    return () => window.clearTimeout(timer);
+  }, [message, onClose]);
 
   return (
     <div className={`${backdropClassName} story-backdrop`}>
