@@ -1363,6 +1363,29 @@ async function uploadStoryPhoto(householdId: string, messageId: string, photo: P
   };
 }
 
+async function uploadProfilePhoto(householdId: string, residentId: string, photo: PreparedStoryPhoto) {
+  if (!supabase) {
+    return null;
+  }
+
+  const basePath = `profiles/${householdId}/${residentId}`;
+  const path = `${basePath}.${photo.extension}`;
+  const { error } = await supabase.storage.from(STORY_MEDIA_BUCKET).upload(path, photo.blob, {
+    cacheControl: "3600",
+    contentType: photo.blob.type,
+    upsert: true,
+  });
+
+  if (error) {
+    return null;
+  }
+
+  const obsoletePath = `${basePath}.${photo.extension === "webp" ? "jpg" : "webp"}`;
+  await supabase.storage.from(STORY_MEDIA_BUCKET).remove([obsoletePath]);
+  const publicUrl = supabase.storage.from(STORY_MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
+  return `${publicUrl}?v=${Date.now()}`;
+}
+
 async function deleteRemoteReminder(reminderId: string) {
   if (!supabase) {
     return false;
@@ -2086,6 +2109,8 @@ export default function HomePage() {
   const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
   const [newResidentPhoto, setNewResidentPhoto] = useState("");
   const [editResidentPhoto, setEditResidentPhoto] = useState("");
+  const [preparedNewResidentPhoto, setPreparedNewResidentPhoto] = useState<PreparedStoryPhoto | null>(null);
+  const [preparedEditResidentPhoto, setPreparedEditResidentPhoto] = useState<PreparedStoryPhoto | null>(null);
   const [themePreview, setThemePreview] = useState<ProfileThemeId | null>(null);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState("");
@@ -2753,6 +2778,48 @@ export default function HomePage() {
     }
   }
 
+  async function prepareResidentPhoto(
+    file: File | undefined,
+    current: PreparedStoryPhoto | null,
+    setPrepared: (photo: PreparedStoryPhoto | null) => void,
+    setPreview: (photo: string) => void,
+  ) {
+    if (!file) {
+      return;
+    }
+    if (file.size > 30 * 1024 * 1024) {
+      showAssistantMessage("Escolha uma foto de até 30 MB.", false);
+      return;
+    }
+
+    try {
+      const prepared = await compressStoryPhoto(file);
+      if (current) {
+        URL.revokeObjectURL(current.previewUrl);
+      }
+      setPrepared(prepared);
+      setPreview(prepared.previewUrl);
+    } catch (error) {
+      showAssistantMessage(error instanceof Error ? error.message : "Não foi possível preparar a foto.", false);
+    }
+  }
+
+  function selectNewResidentAvatar(photo: string) {
+    if (preparedNewResidentPhoto) {
+      URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
+      setPreparedNewResidentPhoto(null);
+    }
+    setNewResidentPhoto(photo);
+  }
+
+  function selectEditResidentAvatar(photo: string) {
+    if (preparedEditResidentPhoto) {
+      URL.revokeObjectURL(preparedEditResidentPhoto.previewUrl);
+      setPreparedEditResidentPhoto(null);
+    }
+    setEditResidentPhoto(photo);
+  }
+
   function handleOpenNotification(notification: AppNotification) {
     if (notification.action === "location" && notification.locationShareId) {
       const share = appState.locationShares.find((item) => item.id === notification.locationShareId);
@@ -3100,6 +3167,15 @@ export default function HomePage() {
       ownerResidentId: resident.id,
     };
 
+    if (preparedNewResidentPhoto) {
+      const photoUrl = await uploadProfilePhoto(household.id, resident.id, preparedNewResidentPhoto);
+      if (!photoUrl) {
+        showAssistantMessage("Não foi possível enviar a foto do perfil.", false);
+        return;
+      }
+      resident.photo = photoUrl;
+    }
+
     await createRemoteHousehold(household, resident);
     if (authUser) {
       await upsertRemoteHouseholdMember(household.id, authUser.id, "owner");
@@ -3116,6 +3192,10 @@ export default function HomePage() {
       });
       setActiveResident(resident);
       setNewResidentPhoto("");
+      if (preparedNewResidentPhoto) {
+        URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
+      }
+      setPreparedNewResidentPhoto(null);
       setShowHouseholdInvite(true);
     });
   }
@@ -3138,6 +3218,15 @@ export default function HomePage() {
         joinedByCode: true,
       };
 
+    if (preparedNewResidentPhoto) {
+      const photoUrl = await uploadProfilePhoto(household.id, resident.id, preparedNewResidentPhoto);
+      if (!photoUrl) {
+        showAssistantMessage("Não foi possível enviar a foto do perfil.", false);
+        return;
+      }
+      resident.photo = photoUrl;
+    }
+
     await insertRemoteResident(household.id, resident);
     if (authUser) {
       await upsertRemoteHouseholdMember(household.id, authUser.id, "member");
@@ -3156,6 +3245,10 @@ export default function HomePage() {
       setPendingInviteCode("");
       setActiveResident(resident);
       setNewResidentPhoto("");
+      if (preparedNewResidentPhoto) {
+        URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
+      }
+      setPreparedNewResidentPhoto(null);
     });
   }
 
@@ -3292,6 +3385,15 @@ export default function HomePage() {
       photo: newResidentPhoto || undefined,
     };
 
+    if (preparedNewResidentPhoto) {
+      const photoUrl = await uploadProfilePhoto(appState.household.id, resident.id, preparedNewResidentPhoto);
+      if (!photoUrl) {
+        showAssistantMessage("Não foi possível enviar a foto do perfil.", false);
+        return;
+      }
+      resident.photo = photoUrl;
+    }
+
     await insertRemoteResident(appState.household.id, resident);
     setAppState((current) => ({
       ...current,
@@ -3299,6 +3401,10 @@ export default function HomePage() {
     }));
     recordActivity("resident", `adicionou ${resident.name} à casa`, resident.role);
     setNewResidentPhoto("");
+    if (preparedNewResidentPhoto) {
+      URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
+    }
+    setPreparedNewResidentPhoto(null);
     setShowNewResident(false);
   }
 
@@ -3498,6 +3604,15 @@ export default function HomePage() {
       photo: editResidentPhoto || activeResident.photo,
     };
 
+    if (preparedEditResidentPhoto && appState.household) {
+      const photoUrl = await uploadProfilePhoto(appState.household.id, activeResident.id, preparedEditResidentPhoto);
+      if (!photoUrl) {
+        showAssistantMessage("Não foi possível atualizar a foto do perfil.", false);
+        return;
+      }
+      updatedResident.photo = photoUrl;
+    }
+
     await updateRemoteResident(updatedResident);
 
     if (birthdayDate && appState.household) {
@@ -3549,6 +3664,10 @@ export default function HomePage() {
     }));
     setActiveResident(updatedResident);
     setEditResidentPhoto("");
+    if (preparedEditResidentPhoto) {
+      URL.revokeObjectURL(preparedEditResidentPhoto.previewUrl);
+    }
+    setPreparedEditResidentPhoto(null);
     setThemePreview(null);
     setProfileModal(null);
   }
@@ -4100,7 +4219,15 @@ export default function HomePage() {
           onCreate={handleCreateHousehold}
           onContinue={handleContinueHousehold}
           onJoin={handleJoinHousehold}
-          onPhotoSelect={setNewResidentPhoto}
+          onPhotoSelect={selectNewResidentAvatar}
+          onPhotoUpload={(file) =>
+            prepareResidentPhoto(
+              file,
+              preparedNewResidentPhoto,
+              setPreparedNewResidentPhoto,
+              setNewResidentPhoto,
+            )
+          }
           onShowReleaseNotes={() => setShowReleaseNotes(true)}
         />
         {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
@@ -4436,6 +4563,10 @@ export default function HomePage() {
             photo={editResidentPhoto || activeResident.photo || ""}
             resident={activeResident}
             onClose={() => {
+              if (preparedEditResidentPhoto) {
+                URL.revokeObjectURL(preparedEditResidentPhoto.previewUrl);
+                setPreparedEditResidentPhoto(null);
+              }
               setEditResidentPhoto("");
               setThemePreview(null);
               setProfileModal(null);
@@ -4443,7 +4574,15 @@ export default function HomePage() {
             onDelete={handleDeleteResident}
             onAddAccountEmail={handleAddAccountEmail}
             onAddAccountPassword={handleAddAccountPassword}
-            onPhotoSelect={setEditResidentPhoto}
+            onPhotoSelect={selectEditResidentAvatar}
+            onPhotoUpload={(file) =>
+              prepareResidentPhoto(
+                file,
+                preparedEditResidentPhoto,
+                setPreparedEditResidentPhoto,
+                setEditResidentPhoto,
+              )
+            }
             onThemePreview={handlePreviewTheme}
             onSubmit={handleUpdateResident}
           />
@@ -4634,10 +4773,22 @@ export default function HomePage() {
         <NewResidentModal
           photo={newResidentPhoto}
           onClose={() => {
+            if (preparedNewResidentPhoto) {
+              URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
+              setPreparedNewResidentPhoto(null);
+            }
             setNewResidentPhoto("");
             setShowNewResident(false);
           }}
-          onPhotoSelect={setNewResidentPhoto}
+          onPhotoSelect={selectNewResidentAvatar}
+          onPhotoUpload={(file) =>
+            prepareResidentPhoto(
+              file,
+              preparedNewResidentPhoto,
+              setPreparedNewResidentPhoto,
+              setNewResidentPhoto,
+            )
+          }
           onSubmit={handleAddResident}
         />
       ) : null}
@@ -4945,7 +5096,7 @@ function ActivityTimelineModal({
                   </span>
                   {linkedMessage?.photo ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img className="activity-message-thumbnail" src={linkedMessage.photo} alt="" />
+                    <img className="activity-message-thumbnail" src={linkedMessage.photo} alt="" loading="lazy" decoding="async" />
                   ) : null}
                   {isInteractive ? <ChevronRight size={18} className="activity-chevron" /> : null}
                 </>
@@ -5853,6 +6004,7 @@ function HouseholdSetup({
   onContinue,
   onJoin,
   onPhotoSelect,
+  onPhotoUpload,
   onShowReleaseNotes,
 }: {
   inviteCode: string;
@@ -5862,6 +6014,7 @@ function HouseholdSetup({
   onContinue: (household: RecentHousehold) => void;
   onJoin: (code: string, resident: StarterResidentInput) => void;
   onPhotoSelect: (photo: string) => void;
+  onPhotoUpload: (file?: File) => void | Promise<void>;
   onShowReleaseNotes: () => void;
 }) {
   const hasInviteLink = Boolean(inviteCode);
@@ -6045,6 +6198,7 @@ function HouseholdSetup({
             rolePlaceholder={isCreateMode ? "Ex: Admin da casa" : "Ex: Morador"}
             onChange={updateResident}
             onPhotoSelect={onPhotoSelect}
+            onPhotoUpload={onPhotoUpload}
           />
         ) : null}
 
@@ -6090,16 +6244,18 @@ function ResidentStarterFields({
   rolePlaceholder,
   onChange,
   onPhotoSelect,
+  onPhotoUpload,
 }: {
   photo: string;
   resident: StarterResidentInput;
   rolePlaceholder: string;
   onChange: (field: keyof StarterResidentInput, value: string) => void;
   onPhotoSelect: (photo: string) => void;
+  onPhotoUpload: (file?: File) => void | Promise<void>;
 }) {
   return (
     <div className="household-form">
-      <AvatarPicker photo={photo} compact onSelect={onPhotoSelect} />
+      <AvatarPicker photo={photo} compact onSelect={onPhotoSelect} onUpload={onPhotoUpload} />
       <div className="field">
         <label htmlFor="starter-name">Seu nome</label>
         <input
@@ -6246,7 +6402,7 @@ function Avatar({
     >
       {resident.photo ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img alt="" src={resident.photo} />
+        <img alt="" src={resident.photo} loading="lazy" decoding="async" />
       ) : (
         resident.name.slice(0, 1).toUpperCase()
       )}
@@ -6377,30 +6533,32 @@ function AvatarPicker({
   fallbackColor,
   photo,
   onSelect,
+  onUpload,
 }: {
   compact?: boolean;
   fallbackColor?: string;
   photo: string;
   onSelect: (photo: string) => void;
+  onUpload: (file?: File) => void | Promise<void>;
 }) {
   const [uploadError, setUploadError] = useState("");
 
-  function handleUpload(file?: File) {
+  async function handleUpload(file?: File) {
     if (!file) {
       return;
     }
 
-    if (file.size > 3 * 1024 * 1024) {
-      setUploadError("Escolha uma foto de até 3 MB.");
+    if (file.size > 30 * 1024 * 1024) {
+      setUploadError("Escolha uma foto de até 30 MB.");
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      onSelect(String(reader.result ?? ""));
+    try {
+      await onUpload(file);
       setUploadError("");
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      setUploadError("Não foi possível preparar a foto.");
+    }
   }
 
   return (
@@ -6411,7 +6569,7 @@ function AvatarPicker({
       >
         {photo ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img alt="" src={photo} />
+          <img alt="" src={photo} loading="lazy" decoding="async" />
         ) : (
           <Users size={compact ? 28 : 34} />
         )}
@@ -6497,11 +6655,13 @@ function NewResidentModal({
   photo,
   onClose,
   onPhotoSelect,
+  onPhotoUpload,
   onSubmit,
 }: {
   photo: string;
   onClose: () => void;
   onPhotoSelect: (photo: string) => void;
+  onPhotoUpload: (file?: File) => void | Promise<void>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
@@ -6512,7 +6672,7 @@ function NewResidentModal({
         <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
-        <AvatarPicker photo={photo} onSelect={onPhotoSelect} />
+        <AvatarPicker photo={photo} onSelect={onPhotoSelect} onUpload={onPhotoUpload} />
         <div>
           <p className="eyebrow">Novo perfil</p>
           <h2>Adicionar morador</h2>
@@ -6733,6 +6893,7 @@ function EditResidentModal({
   onAddAccountEmail,
   onAddAccountPassword,
   onPhotoSelect,
+  onPhotoUpload,
   onThemePreview,
   onSubmit,
 }: {
@@ -6746,6 +6907,7 @@ function EditResidentModal({
   onAddAccountEmail: (email: string) => Promise<string | null>;
   onAddAccountPassword: (password: string) => Promise<string | null>;
   onPhotoSelect: (photo: string) => void;
+  onPhotoUpload: (file?: File) => void | Promise<void>;
   onThemePreview: (theme: ProfileThemeId) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
@@ -6788,7 +6950,7 @@ function EditResidentModal({
         <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
-        <AvatarPicker fallbackColor={resident.color} photo={photo} onSelect={onPhotoSelect} />
+        <AvatarPicker fallbackColor={resident.color} photo={photo} onSelect={onPhotoSelect} onUpload={onPhotoUpload} />
         <div>
           <p className="eyebrow">Editar perfil</p>
           <h2>{resident.name}</h2>

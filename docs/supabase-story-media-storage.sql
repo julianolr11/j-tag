@@ -1,5 +1,5 @@
 -- Execute uma vez no SQL Editor do Supabase.
--- As novas fotos dos stories ficam no Storage; daily_messages guarda somente a URL.
+-- Fotos de stories e perfis ficam no Storage; o banco guarda somente as URLs.
 
 insert into storage.buckets (
   id,
