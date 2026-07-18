@@ -18,6 +18,7 @@ import {
   Cloudy,
   FileText,
   HeartPulse,
+  History,
   House,
   Info,
   KeyRound,
@@ -88,6 +89,16 @@ type LocationShare = {
   expiresAt: string;
 };
 
+type ActivityEvent = {
+  id: string;
+  residentId: string;
+  kind: "reminder" | "location" | "birthday" | "resident";
+  title: string;
+  detail?: string;
+  createdAt: string;
+  locationShareId?: string;
+};
+
 type Household = {
   id: string;
   name: string;
@@ -104,6 +115,7 @@ type AppState = {
   birthdays: Birthday[];
   emergencyContacts: EmergencyContact[];
   locationShares: LocationShare[];
+  activityEvents: ActivityEvent[];
 };
 
 type WeatherMood = "sunny" | "partly" | "cloudy" | "rain" | "storm" | "snow" | "fog" | "rainbow" | "night" | "night-cloud";
@@ -288,6 +300,16 @@ type LocationShareRow = {
   created_at: string;
 };
 
+type ActivityEventRow = {
+  id: string;
+  resident_id: string;
+  kind: ActivityEvent["kind"];
+  title: string;
+  detail: string | null;
+  created_at: string;
+  location_share_id: string | null;
+};
+
 const reminderIconOptions: Array<{
   id: ReminderIcon;
   label: string;
@@ -446,6 +468,7 @@ const defaultState: AppState = {
   birthdays: [],
   emergencyContacts: [],
   locationShares: [],
+  activityEvents: [],
 };
 
 function mergeSeedItems<T extends { id: string }>(storedItems: T[] | undefined, seedItems: T[]) {
@@ -566,6 +589,7 @@ function loadState(): AppState {
       birthdays: mergeSeedItems(parsed.birthdays, defaultState.birthdays),
       emergencyContacts: parsed.emergencyContacts ?? [],
       locationShares: parsed.locationShares ?? [],
+      activityEvents: parsed.activityEvents ?? [],
       residents: (parsed.residents ?? defaultState.residents).map((resident, index) => ({
         ...resident,
         color: resident.color ?? ["#e50914", "#2f80ed", "#f2994a", "#27ae60"][index % 4],
@@ -681,17 +705,30 @@ function mapLocationShare(row: LocationShareRow): LocationShare {
   };
 }
 
+function mapActivityEvent(row: ActivityEventRow): ActivityEvent {
+  return {
+    id: row.id,
+    residentId: row.resident_id,
+    kind: row.kind,
+    title: row.title,
+    detail: row.detail ?? undefined,
+    createdAt: row.created_at,
+    locationShareId: row.location_share_id ?? undefined,
+  };
+}
+
 async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppState | null> {
   if (!supabase) {
     return null;
   }
 
-  const [residentsResult, remindersResult, birthdaysResult, contactsResult, locationsResult] = await Promise.all([
+  const [residentsResult, remindersResult, birthdaysResult, contactsResult, locationsResult, activityResult] = await Promise.all([
     supabase.from("residents").select("*").eq("household_id", household.id).order("created_at"),
     supabase.from("reminders").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
     supabase.from("birthdays").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
     supabase.from("emergency_contacts").select("*").eq("household_id", household.id).order("created_at"),
     supabase.from("location_shares").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
+    supabase.from("activity_events").select("*").eq("household_id", household.id).order("created_at", { ascending: false }).limit(100),
   ]);
 
   if (residentsResult.error || remindersResult.error || birthdaysResult.error || contactsResult.error) {
@@ -705,6 +742,7 @@ async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppS
     birthdays: ((birthdaysResult.data ?? []) as BirthdayRow[]).map(mapBirthday),
     emergencyContacts: ((contactsResult.data ?? []) as EmergencyContactRow[]).map(mapEmergencyContact),
     locationShares: locationsResult.error ? [] : ((locationsResult.data ?? []) as LocationShareRow[]).map(mapLocationShare),
+    activityEvents: activityResult.error ? [] : ((activityResult.data ?? []) as ActivityEventRow[]).map(mapActivityEvent),
   };
 }
 
@@ -981,6 +1019,25 @@ async function insertRemoteLocationShare(householdId: string, share: LocationSha
     accuracy: share.accuracy ?? null,
     expires_at: share.expiresAt,
     created_at: share.createdAt,
+  });
+
+  return !error;
+}
+
+async function insertRemoteActivityEvent(householdId: string, event: ActivityEvent) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("activity_events").insert({
+    id: event.id,
+    household_id: householdId,
+    resident_id: event.residentId,
+    kind: event.kind,
+    title: event.title,
+    detail: event.detail ?? null,
+    location_share_id: event.locationShareId ?? null,
+    created_at: event.createdAt,
   });
 
   return !error;
@@ -1682,7 +1739,7 @@ export default function HomePage() {
   const [isNightNow, setIsNightNow] = useState(() => isNightTime());
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
   const [profileModal, setProfileModal] = useState<
-    "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | null
+    "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | "timeline" | null
   >(null);
   const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
   const [newResidentPhoto, setNewResidentPhoto] = useState("");
@@ -1899,6 +1956,140 @@ export default function HomePage() {
   }, [appState]);
 
   useEffect(() => {
+    const householdId = appState.household?.id;
+
+    if (!supabase || !householdId) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`household-live-${householdId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "residents", filter: `household_id=eq.${householdId}` },
+        (payload) => {
+          const row = payload.new as ResidentRow;
+          const removedId = (payload.old as { id?: string }).id;
+
+          setAppState((current) => ({
+            ...current,
+            residents:
+              payload.eventType === "DELETE"
+                ? current.residents.filter((item) => item.id !== removedId)
+                : [
+                    mapResident(row),
+                    ...current.residents.filter((item) => item.id !== row.id),
+                  ],
+          }));
+
+          if (payload.eventType !== "DELETE") {
+            setActiveResident((current) => (current?.id === row.id ? mapResident(row) : current));
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "reminders", filter: `household_id=eq.${householdId}` },
+        (payload) => {
+          const row = payload.new as ReminderRow;
+          const removedId = (payload.old as { id?: string }).id;
+
+          setAppState((current) => ({
+            ...current,
+            reminders:
+              payload.eventType === "DELETE"
+                ? current.reminders.filter((item) => item.id !== removedId)
+                : [
+                    mapReminder(row),
+                    ...current.reminders.filter((item) => item.id !== row.id),
+                  ],
+          }));
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "birthdays", filter: `household_id=eq.${householdId}` },
+        (payload) => {
+          const row = payload.new as BirthdayRow;
+          const removedId = (payload.old as { id?: string }).id;
+
+          setAppState((current) => ({
+            ...current,
+            birthdays:
+              payload.eventType === "DELETE"
+                ? current.birthdays.filter((item) => item.id !== removedId)
+                : [
+                    mapBirthday(row),
+                    ...current.birthdays.filter((item) => item.id !== row.id),
+                  ],
+          }));
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "emergency_contacts", filter: `household_id=eq.${householdId}` },
+        (payload) => {
+          const row = payload.new as EmergencyContactRow;
+          const removedId = (payload.old as { id?: string }).id;
+
+          setAppState((current) => ({
+            ...current,
+            emergencyContacts:
+              payload.eventType === "DELETE"
+                ? current.emergencyContacts.filter((item) => item.id !== removedId)
+                : [
+                    mapEmergencyContact(row),
+                    ...current.emergencyContacts.filter((item) => item.id !== row.id),
+                  ],
+          }));
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "location_shares", filter: `household_id=eq.${householdId}` },
+        (payload) => {
+          const row = payload.new as LocationShareRow;
+          const removedId = (payload.old as { id?: string }).id;
+
+          setAppState((current) => ({
+            ...current,
+            locationShares:
+              payload.eventType === "DELETE"
+                ? current.locationShares.filter((item) => item.id !== removedId)
+                : [
+                    mapLocationShare(row),
+                    ...current.locationShares.filter((item) => item.id !== row.id),
+                  ],
+          }));
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "activity_events", filter: `household_id=eq.${householdId}` },
+        (payload) => {
+          const row = payload.new as ActivityEventRow;
+          const removedId = (payload.old as { id?: string }).id;
+
+          setAppState((current) => ({
+            ...current,
+            activityEvents:
+              payload.eventType === "DELETE"
+                ? current.activityEvents.filter((item) => item.id !== removedId)
+                : [
+                    mapActivityEvent(row),
+                    ...current.activityEvents.filter((item) => item.id !== row.id),
+                  ].slice(0, 100),
+          }));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [appState.household?.id]);
+
+  useEffect(() => {
     function handleGlobalPointerDown(event: PointerEvent) {
       const target = event.target;
       const clickedVoiceButton =
@@ -2027,6 +2218,33 @@ export default function HomePage() {
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
 
+  function recordActivity(
+    kind: ActivityEvent["kind"],
+    title: string,
+    detail?: string,
+    locationShareId?: string,
+  ) {
+    if (!activeResident || !appState.household) {
+      return;
+    }
+
+    const event: ActivityEvent = {
+      id: crypto.randomUUID(),
+      residentId: activeResident.id,
+      kind,
+      title,
+      detail,
+      createdAt: new Date().toISOString(),
+      locationShareId,
+    };
+
+    void insertRemoteActivityEvent(appState.household.id, event);
+    setAppState((current) => ({
+      ...current,
+      activityEvents: [event, ...current.activityEvents].slice(0, 100),
+    }));
+  }
+
   function handleOpenNotification(notification: AppNotification) {
     if (notification.action === "location" && notification.locationShareId) {
       const share = appState.locationShares.find((item) => item.id === notification.locationShareId);
@@ -2092,6 +2310,12 @@ export default function HomePage() {
           ...current,
           locationShares: [share, ...current.locationShares],
         }));
+        recordActivity(
+          "location",
+          "compartilhou a localização",
+          `Disponível por ${durationMinutes === 10 ? "10 minutos" : "1 hora"}`,
+          share.id,
+        );
         setShowLocationShare(false);
         showAssistantMessage(`Localização compartilhada por ${durationMinutes === 10 ? "10 min" : "1h"}.`);
       },
@@ -2447,6 +2671,7 @@ export default function HomePage() {
       ...current,
       residents: [...current.residents, resident],
     }));
+    recordActivity("resident", `adicionou ${resident.name} à casa`, resident.role);
     setNewResidentPhoto("");
     setShowNewResident(false);
   }
@@ -2481,6 +2706,7 @@ export default function HomePage() {
       ...current,
       reminders: [reminder, ...current.reminders],
     }));
+    recordActivity("reminder", "adicionou um lembrete", reminder.text);
     setProfileModal(null);
   }
 
@@ -2573,6 +2799,7 @@ export default function HomePage() {
       ...current,
       birthdays: [birthday, ...current.birthdays],
     }));
+    recordActivity("birthday", "adicionou um aniversário", `${birthday.name} · ${birthday.date}`);
     setProfileModal(null);
   }
 
@@ -2916,6 +3143,7 @@ export default function HomePage() {
       ...current,
       reminders: [reminder, ...current.reminders],
     }));
+    recordActivity("reminder", "adicionou um lembrete por voz", reminder.text);
     showAssistantMessage(`Pronto, adicionei o lembrete: ${text}.`);
   }
 
@@ -2972,6 +3200,7 @@ export default function HomePage() {
       ...current,
       birthdays: [birthday, ...current.birthdays],
     }));
+    recordActivity("birthday", "adicionou um aniversário por voz", `${birthday.name} · ${birthday.date}`);
     showAssistantMessage(`Pronto, cadastrei o aniversário de ${name}.`);
   }
 
@@ -3277,6 +3506,18 @@ export default function HomePage() {
               <strong>{appState.residents.length}</strong>
               <em>{appState.residents.length === 1 ? "perfil na casa" : "perfis na casa"}</em>
             </button>
+            <button className="dashboard-card dashboard-card-timeline" type="button" onClick={() => setProfileModal("timeline")}>
+              <span className="dashboard-card-icon timeline-icon">
+                <History size={20} />
+              </span>
+              <small>Timeline</small>
+              <strong>{appState.activityEvents[0]?.title ?? "Tudo tranquilo"}</strong>
+              <em>
+                {appState.activityEvents[0]
+                  ? formatActivityRelativeTime(appState.activityEvents[0].createdAt)
+                  : "Os acontecimentos aparecem aqui"}
+              </em>
+            </button>
             <button className="dashboard-card" type="button" onClick={() => setShowEmergency(true)}>
               <span className="dashboard-card-icon emergency-icon-mini">
                 <HeartPulse size={20} />
@@ -3408,6 +3649,20 @@ export default function HomePage() {
             onEdit={() => undefined}
             onComplete={() => undefined}
             title="Calendário de aniversários"
+          />
+        ) : null}
+        {profileModal === "timeline" ? (
+          <ActivityTimelineModal
+            events={appState.activityEvents}
+            residents={appState.residents}
+            onClose={() => setProfileModal(null)}
+            onOpenLocation={(shareId) => {
+              const share = appState.locationShares.find((item) => item.id === shareId);
+              if (share) {
+                setProfileModal(null);
+                setSelectedLocationShare(share);
+              }
+            }}
           />
         ) : null}
       {showHouseholdInvite ? (
@@ -3674,6 +3929,101 @@ function NotificationsModal({
               <Bell size={22} />
               <strong>Nada novo por aqui</strong>
               <span>Aniversários próximos e lembretes importantes vão aparecer neste sino.</span>
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function formatActivityRelativeTime(value: string) {
+  const distance = Date.now() - new Date(value).getTime();
+  const minutes = Math.max(0, Math.floor(distance / 60_000));
+
+  if (minutes < 1) return "agora";
+  if (minutes < 60) return `há ${minutes} min`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `há ${hours}h`;
+
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "ontem";
+  if (days < 7) return `há ${days} dias`;
+
+  return new Date(value).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+}
+
+function ActivityTimelineModal({
+  events,
+  residents,
+  onClose,
+  onOpenLocation,
+}: {
+  events: ActivityEvent[];
+  residents: Resident[];
+  onClose: () => void;
+  onOpenLocation: (shareId: string) => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const iconMap: Record<ActivityEvent["kind"], LucideIcon> = {
+    reminder: Bell,
+    location: MapPin,
+    birthday: Cake,
+    resident: UserPlus,
+  };
+
+  return (
+    <div className={backdropClassName}>
+      <section className="dark-modal activity-modal" role="dialog" aria-modal="true" aria-labelledby="activity-title">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <span className="modal-icon activity-modal-icon">
+          <History size={30} />
+        </span>
+        <p className="eyebrow">Histórico da casa</p>
+        <h2 id="activity-title">Timeline</h2>
+        <p className="activity-modal-copy">Os últimos acontecimentos, em ordem, com quem fez cada ação.</p>
+
+        <div className="activity-timeline">
+          {events.length ? (
+            events.map((event, index) => {
+              const resident = residents.find((item) => item.id === event.residentId);
+              const EventIcon = iconMap[event.kind];
+              const content = (
+                <>
+                  <span className={`activity-kind activity-kind-${event.kind}`}>
+                    <EventIcon size={17} />
+                  </span>
+                  <span className="activity-content">
+                    <span className="activity-title">
+                      <strong>{resident?.name ?? "Alguém da casa"}</strong> {event.title}
+                    </span>
+                    {event.detail ? <small>{event.detail}</small> : null}
+                    <time dateTime={event.createdAt}>{formatActivityRelativeTime(event.createdAt)}</time>
+                  </span>
+                  {event.locationShareId ? <ChevronRight size={18} className="activity-chevron" /> : null}
+                </>
+              );
+
+              return (
+                <article className="activity-entry" key={event.id} style={{ "--activity-index": index } as CSSProperties}>
+                  {event.locationShareId ? (
+                    <button type="button" onClick={() => onOpenLocation(event.locationShareId!)}>
+                      {content}
+                    </button>
+                  ) : (
+                    <div>{content}</div>
+                  )}
+                </article>
+              );
+            })
+          ) : (
+            <div className="activity-empty">
+              <History size={24} />
+              <strong>A casa está tranquila</strong>
+              <span>Novos lembretes, localizações e mudanças vão aparecer aqui.</span>
             </div>
           )}
         </div>
