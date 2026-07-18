@@ -5139,6 +5139,20 @@ html:fullscreen body {
       calc(18px + env(safe-area-inset-left));
   }
 
+  .profile-stage {
+    align-content: start;
+    grid-template-rows: auto auto auto;
+  }
+
+  .profile-stage .profile-copy {
+    align-self: auto;
+    margin-top: clamp(26px, 4.5vh, 42px);
+  }
+
+  .profile-stage .stream-profile-grid {
+    margin-top: clamp(20px, 3.5vh, 32px);
+  }
+
   .household-setup {
     gap: 22px;
     min-height: 100svh;
