@@ -5266,7 +5266,7 @@ function ActivityTimelineStoryModal({
   return (
     <div className={`${backdropClassName} story-backdrop`}>
       <article
-        className={`daily-story activity-story activity-story-${event.kind} ${linkedMessage?.photo ? "daily-story-photo" : ""} ${dragOffset > 0 ? "daily-story-dragging" : ""}`}
+        className={`daily-story activity-story activity-story-${event.kind} ${linkedMessage?.photo ? "daily-story-photo" : ""} ${event.kind === "message" ? "activity-story-without-icon" : ""} ${dragOffset > 0 ? "daily-story-dragging" : ""}`}
         role="dialog"
         aria-modal="true"
         style={{ "--story-drag-y": `${dragOffset}px` } as CSSProperties}
@@ -5317,9 +5317,11 @@ function ActivityTimelineStoryModal({
           </span>
         </header>
         <div className="activity-story-content">
-          <span className={`activity-story-icon activity-kind-${event.kind}`}>
-            <StoryIcon size={62} strokeWidth={1.7} />
-          </span>
+          {event.kind !== "message" ? (
+            <span className={`activity-story-icon activity-kind-${event.kind}`}>
+              <StoryIcon size={62} strokeWidth={1.7} />
+            </span>
+          ) : null}
           <p>{resident?.name ?? "Alguém da casa"}</p>
           <h2>{event.title}</h2>
           {event.detail ? <strong>{event.detail}</strong> : null}
