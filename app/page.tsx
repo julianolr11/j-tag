@@ -3349,14 +3349,16 @@ export default function HomePage() {
     }
   }
 
-  function handlePinDigit(digit: string) {
-    if (!selectedResident || pin.length >= 4) {
+  function handlePinInput(value: string) {
+    if (!selectedResident) {
       return;
     }
 
-    const nextPin = `${pin}${digit}`;
+    const nextPin = value.replace(/\D/g, "").slice(0, 4);
     setPin(nextPin);
-    validateResidentPin(nextPin, selectedResident);
+    if (nextPin.length === 4) {
+      validateResidentPin(nextPin, selectedResident);
+    }
   }
 
   async function handleAddResident(event: FormEvent<HTMLFormElement>) {
@@ -4764,8 +4766,7 @@ export default function HomePage() {
           error={pinError}
           resident={selectedResident}
           onClose={() => setSelectedResident(null)}
-          onDigit={handlePinDigit}
-          onErase={() => setPin((current) => current.slice(0, -1))}
+          onChange={handlePinInput}
         />
       ) : null}
 
@@ -6478,15 +6479,13 @@ function PinModal({
   pin,
   error,
   onClose,
-  onDigit,
-  onErase,
+  onChange,
 }: {
   resident: Resident;
   pin: string;
   error: string;
   onClose: () => void;
-  onDigit: (digit: string) => void;
-  onErase: () => void;
+  onChange: (pin: string) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
 
@@ -6501,28 +6500,25 @@ function PinModal({
           <p className="eyebrow">Entrar como</p>
           <h2>{resident.name}</h2>
         </div>
-        <div className="pin-dots" aria-label={`${pin.length} dígitos informados`}>
+        <label className="pin-dots" htmlFor="native-profile-pin" aria-label={`${pin.length} dígitos informados`}>
           {[0, 1, 2, 3].map((item) => (
             <span className={`pin-dot ${pin.length > item ? "active" : ""}`} key={item} />
           ))}
-        </div>
+        </label>
+        <input
+          aria-label="Digite seu PIN de 4 dígitos"
+          autoComplete="off"
+          autoFocus
+          className="native-pin-input"
+          id="native-profile-pin"
+          inputMode="numeric"
+          maxLength={4}
+          pattern="[0-9]*"
+          type="password"
+          value={pin}
+          onChange={(event) => onChange(event.target.value)}
+        />
         {error ? <p className="modal-error">{error}</p> : null}
-        <div className="keypad">
-          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
-            <button key={digit} type="button" onClick={() => onDigit(digit)}>
-              {digit}
-            </button>
-          ))}
-          <button type="button" onClick={onErase}>
-            apagar
-          </button>
-          <button type="button" onClick={() => onDigit("0")}>
-            0
-          </button>
-          <button type="button" disabled>
-            <LockKeyhole size={18} />
-          </button>
-        </div>
       </section>
     </div>
   );

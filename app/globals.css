@@ -1625,6 +1625,16 @@ html:-webkit-full-screen .modal-backdrop {
   gap: 10px;
 }
 
+.native-pin-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .pin-dot {
   background: #3a3a3a;
   border-radius: 999px;
