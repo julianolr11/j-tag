@@ -4547,10 +4547,17 @@ function WeatherSummaryModal({
         <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
-        <p className="eyebrow">Resumo do dia</p>
-        <h2 id="weather-summary-title">
-          {weather.status === "ready" ? displayWeather.description : "Previsão indisponível"}
-        </h2>
+        <header className="weather-summary-header">
+          <span className="weather-summary-header-icon">
+            <CurrentIcon size={22} />
+          </span>
+          <div>
+            <p className="eyebrow">Resumo do dia</p>
+            <h2 id="weather-summary-title">
+              {weather.status === "ready" ? displayWeather.description : "Previsão indisponível"}
+            </h2>
+          </div>
+        </header>
 
         <div className={`weather-summary-current weather-${displayWeather.mood}`}>
           <span className="weather-summary-main-icon">
@@ -4571,8 +4578,11 @@ function WeatherSummaryModal({
         </div>
 
         <div className="weather-forecast-heading">
-          <strong>Próximos 5 dias</strong>
-          <small>mín. · máx.</small>
+          <span>
+            <strong>Próximos 5 dias</strong>
+            <small>Previsão resumida</small>
+          </span>
+          <small>mín. / máx.</small>
         </div>
         <div className="weather-forecast-list">
           {weather.forecast?.length ? (
