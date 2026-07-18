@@ -36,6 +36,7 @@ import {
   Pencil,
   Phone,
   Pill,
+  Play,
   Plus,
   Rainbow,
   Send,
@@ -294,12 +295,26 @@ async function compressStoryPhoto(file: File): Promise<PreparedStoryPhoto> {
       image.src = sourceUrl;
     });
 
-    let maxDimension = 1920;
-    let quality = 0.86;
     let output: Blob | null = null;
     let outputType = "image/webp";
+    let smallestOutput: Blob | null = null;
+    let smallestOutputType = outputType;
+    const attempts = [
+      { maxDimension: 1920, quality: 0.86 },
+      { maxDimension: 1920, quality: 0.76 },
+      { maxDimension: 1600, quality: 0.74 },
+      { maxDimension: 1440, quality: 0.7 },
+      { maxDimension: 1280, quality: 0.66 },
+      { maxDimension: 1080, quality: 0.62 },
+      { maxDimension: 900, quality: 0.56 },
+      { maxDimension: 720, quality: 0.5 },
+      { maxDimension: 640, quality: 0.44 },
+      { maxDimension: 540, quality: 0.38 },
+      { maxDimension: 480, quality: 0.32 },
+    ];
 
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    for (const attempt of attempts) {
+      const { maxDimension, quality } = attempt;
       const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
@@ -318,18 +333,26 @@ async function compressStoryPhoto(file: File): Promise<PreparedStoryPhoto> {
         outputType = "image/jpeg";
         output = await canvasToBlob(canvas, outputType, quality);
       }
+      if (output && (!smallestOutput || output.size < smallestOutput.size)) {
+        smallestOutput = output;
+        smallestOutputType = outputType;
+      }
       if (output && output.size <= MAX_STORY_UPLOAD_BYTES) {
         break;
-      }
-
-      quality = Math.max(0.58, quality - 0.07);
-      if (attempt >= 3) {
-        maxDimension = Math.max(1080, Math.round(maxDimension * 0.85));
       }
     }
 
     if (!output || output.size > MAX_STORY_UPLOAD_BYTES) {
-      throw new Error("Não foi possível reduzir a foto para publicação.");
+      output = smallestOutput;
+      outputType = smallestOutputType;
+    }
+
+    if (!output) {
+      throw new Error("Não foi possível converter esta imagem.");
+    }
+
+    if (output.size > MAX_STORY_UPLOAD_BYTES) {
+      throw new Error("O navegador não conseguiu compactar esta imagem. Tente salvar uma cópia em JPG.");
     }
 
     return {
@@ -5055,6 +5078,7 @@ function ActivityTimelineModal({
   onOpenMessage: (messageId: string) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [isPlaying, setIsPlaying] = useState(false);
   const iconMap: Record<ActivityEvent["kind"], LucideIcon> = {
     reminder: Bell,
     location: MapPin,
@@ -5063,11 +5087,31 @@ function ActivityTimelineModal({
     message: MessageCircle,
   };
 
+  if (isPlaying && events.length) {
+    return (
+      <ActivityTimelineStoryModal
+        events={[...events].reverse()}
+        messages={messages}
+        residents={residents}
+        onClose={() => setIsPlaying(false)}
+      />
+    );
+  }
+
   return (
     <div className={backdropClassName}>
       <section className="dark-modal activity-modal" role="dialog" aria-modal="true" aria-labelledby="activity-title">
         <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
+        </button>
+        <button
+          className="activity-play-button"
+          type="button"
+          onClick={() => setIsPlaying(true)}
+          disabled={!events.length}
+          aria-label="Reproduzir timeline como stories"
+        >
+          <Play size={19} fill="currentColor" />
         </button>
         <span className="modal-icon activity-modal-icon">
           <History size={30} />
@@ -5142,6 +5186,148 @@ function ActivityTimelineModal({
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function ActivityTimelineStoryModal({
+  events,
+  messages,
+  residents,
+  onClose,
+}: {
+  events: ActivityEvent[];
+  messages: DailyMessage[];
+  residents: Resident[];
+  onClose: () => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [index, setIndex] = useState(0);
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStartY = useRef<number | null>(null);
+  const draggedRef = useRef(false);
+  const event = events[index];
+  const resident = residents.find((item) => item.id === event?.residentId);
+  const linkedMessage = event?.messageId
+    ? messages.find((message) => message.id === event.messageId)
+    : undefined;
+  const iconMap: Record<ActivityEvent["kind"], LucideIcon> = {
+    reminder: Bell,
+    location: MapPin,
+    birthday: Cake,
+    resident: UserPlus,
+    message: MessageCircle,
+  };
+  const StoryIcon = event ? iconMap[event.kind] : History;
+
+  function previous() {
+    setIndex((current) => Math.max(0, current - 1));
+  }
+
+  function next() {
+    if (index >= events.length - 1) {
+      requestClose();
+      return;
+    }
+    setIndex((current) => current + 1);
+  }
+
+  useEffect(() => {
+    if (!event) {
+      onClose();
+      return;
+    }
+    const timer = window.setTimeout(next, 10_000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.id, onClose]);
+
+  if (!event) {
+    return null;
+  }
+
+  return (
+    <div className={`${backdropClassName} story-backdrop`}>
+      <article
+        className={`daily-story activity-story activity-story-${event.kind} ${linkedMessage?.photo ? "daily-story-photo" : ""} ${dragOffset > 0 ? "daily-story-dragging" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        style={{ "--story-drag-y": `${dragOffset}px` } as CSSProperties}
+        onPointerDown={(pointerEvent) => {
+          dragStartY.current = pointerEvent.clientY;
+          draggedRef.current = false;
+          pointerEvent.currentTarget.setPointerCapture(pointerEvent.pointerId);
+        }}
+        onPointerMove={(pointerEvent) => {
+          if (dragStartY.current === null) return;
+          const offset = Math.max(0, pointerEvent.clientY - dragStartY.current);
+          draggedRef.current = offset > 8;
+          setDragOffset(offset);
+        }}
+        onPointerUp={(pointerEvent) => {
+          pointerEvent.currentTarget.releasePointerCapture(pointerEvent.pointerId);
+          dragStartY.current = null;
+          if (dragOffset > 90) requestClose();
+          else setDragOffset(0);
+        }}
+        onPointerCancel={() => {
+          dragStartY.current = null;
+          draggedRef.current = false;
+          setDragOffset(0);
+        }}
+      >
+        {linkedMessage?.photo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="daily-story-image" src={linkedMessage.photo} alt="" />
+        ) : null}
+        <div className="activity-story-atmosphere" aria-hidden="true" />
+        <div className="daily-story-shade" />
+        <div className="daily-story-progress-group" aria-hidden="true">
+          {events.map((storyEvent, storyIndex) => (
+            <span className="daily-story-progress" key={storyEvent.id}>
+              <i className={storyIndex < index ? "complete" : storyIndex === index ? "active" : ""} />
+            </span>
+          ))}
+        </div>
+        <button className="daily-story-close" type="button" onClick={requestClose} aria-label="Fechar stories da timeline">
+          <X size={22} />
+        </button>
+        <header className="daily-story-author">
+          {resident ? <Avatar resident={resident} /> : null}
+          <span>
+            <strong>{resident?.name ?? "Alguém da casa"}</strong>
+            <small>{formatActivityRelativeTime(event.createdAt)}</small>
+          </span>
+        </header>
+        <div className="activity-story-content">
+          <span className={`activity-story-icon activity-kind-${event.kind}`}>
+            <StoryIcon size={62} strokeWidth={1.7} />
+          </span>
+          <p>{resident?.name ?? "Alguém da casa"}</p>
+          <h2>{event.title}</h2>
+          {event.detail ? <strong>{event.detail}</strong> : null}
+          <small>
+            {index + 1} de {events.length}
+          </small>
+        </div>
+        <button
+          className="daily-story-tap-zone daily-story-tap-previous"
+          disabled={index === 0}
+          onClick={() => {
+            if (!draggedRef.current) previous();
+          }}
+          type="button"
+          aria-label="Acontecimento anterior"
+        />
+        <button
+          className="daily-story-tap-zone daily-story-tap-next"
+          onClick={() => {
+            if (!draggedRef.current) next();
+          }}
+          type="button"
+          aria-label={index === events.length - 1 ? "Fechar stories" : "Próximo acontecimento"}
+        />
+      </article>
     </div>
   );
 }
