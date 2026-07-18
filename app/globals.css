@@ -953,6 +953,39 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   margin-bottom: 2px;
 }
 
+.remember-access-check {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9px;
+  cursor: pointer;
+  display: flex;
+  gap: 11px;
+  padding: 11px 12px;
+}
+
+.remember-access-check input {
+  accent-color: #e50914;
+  height: 18px;
+  margin: 0;
+  width: 18px;
+}
+
+.remember-access-check span {
+  display: grid;
+  gap: 2px;
+}
+
+.remember-access-check strong {
+  color: #fff;
+  font-size: 0.82rem;
+}
+
+.remember-access-check small {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.68rem;
+}
+
 .auth-text-button {
   align-self: center;
   background: transparent;
@@ -994,6 +1027,56 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   background: rgba(255, 92, 102, 0.1);
   border: 1px solid rgba(255, 92, 102, 0.22);
   color: #ffc0c4;
+}
+
+.auth-divider {
+  align-items: center;
+  color: rgba(255, 255, 255, 0.42);
+  display: flex;
+  font-size: 0.72rem;
+  gap: 12px;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  background: rgba(255, 255, 255, 0.12);
+  content: "";
+  flex: 1;
+  height: 1px;
+}
+
+.anonymous-access-button {
+  justify-content: center;
+  width: 100%;
+}
+
+.auth-anonymous-note {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  margin: -4px 0 0;
+  text-align: center;
+}
+
+.profile-account-section {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.profile-account-section h3,
+.profile-account-section p {
+  margin: 0;
+}
+
+.profile-account-section > p {
+  color: rgba(255, 255, 255, 0.66);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .password-recovery-screen {

@@ -242,6 +242,8 @@ const LAST_RESIDENT_KEY = "jtag-last-resident-id-v2";
 const CALENDAR_VIEW_KEY = "jtag-calendar-view-mode";
 const RECENT_HOUSEHOLDS_KEY = "jtag-recent-households-v1";
 const LAST_AUTH_EMAIL_KEY = "jtag-last-auth-email-v1";
+const LAST_AUTH_ID_KEY = "jtag-last-auth-id-v1";
+const REMEMBER_AUTH_KEY = "jtag-remember-auth-v1";
 const DISMISSED_NOTIFICATIONS_KEY = "jtag-dismissed-notifications-v1";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -259,6 +261,14 @@ const supabase =
 const MODAL_EXIT_MS = 220;
 const PREPARING_HOUSEHOLD_MS = 1450;
 const WELCOME_HOUSEHOLD_MS = 3600;
+
+function normalizeAccountId(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
+}
+
+function accountIdToTechnicalEmail(value: string) {
+  return `${normalizeAccountId(value)}@accounts.jtag.app`;
+}
 
 type CalendarViewMode = "calendar" | "list";
 type ReminderIcon = "general" | "shopping" | "lightbulb" | "medicine" | "home" | "document";
@@ -2717,7 +2727,12 @@ export default function HomePage() {
     }, options.fromAuth ? PREPARING_HOUSEHOLD_MS : 0);
   }
 
-  async function handleAuthSubmit(mode: "sign-in" | "sign-up", email: string, password: string) {
+  async function handleAuthSubmit(
+    mode: "sign-in" | "sign-up",
+    accountId: string,
+    password: string,
+    legacyEmail = false,
+  ) {
     if (!supabase) {
       window.alert("Supabase não está configurado neste ambiente.");
       return;
@@ -2726,7 +2741,7 @@ export default function HomePage() {
     setAuthTransitionActive(true);
 
     const credentials = {
-      email: email.trim(),
+      email: legacyEmail ? accountId.trim() : accountIdToTechnicalEmail(accountId),
       password,
     };
     const { data, error } =
@@ -2742,6 +2757,24 @@ export default function HomePage() {
 
     if (data.user) {
       setAuthUser(data.user);
+      if (mode === "sign-up" && !legacyEmail) {
+        const handle = normalizeAccountId(accountId);
+        const { error: accessError } = await supabase.from("account_access").insert({
+          user_id: data.user.id,
+          handle,
+        });
+        if (accessError) {
+          await supabase.auth.signOut();
+          setAuthUser(null);
+          setAuthTransitionActive(false);
+          window.alert(
+            accessError.code === "23505"
+              ? "Esse ID já está em uso. Escolha outro."
+              : "Não foi possível registrar o ID de acesso.",
+          );
+          return;
+        }
+      }
       const households = await refreshAccountHouseholds(data.user.id);
       const inviteState = pendingInviteCode ? await loadRemoteStateByCode(pendingInviteCode) : null;
       const inviteMembership = inviteState?.household
@@ -2775,6 +2808,60 @@ export default function HomePage() {
     const redirectTo = `${window.location.origin}${window.location.pathname}`;
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
     return error?.message ?? null;
+  }
+
+  async function handleAddAccountEmail(email: string) {
+    if (!supabase || !authUser) {
+      return "Supabase não está configurado neste ambiente.";
+    }
+    const { error } = await supabase
+      .from("account_access")
+      .update({ recovery_email: email.trim() })
+      .eq("user_id", authUser.id);
+    return error?.message ?? null;
+  }
+
+  async function handleAddAccountPassword(password: string) {
+    if (!supabase) {
+      return "Supabase não está configurado neste ambiente.";
+    }
+
+    const { error } = await supabase.auth.updateUser({ password });
+    return error?.message ?? null;
+  }
+
+  async function handleMigrateLegacyAccount(handleValue: string) {
+    if (!supabase || !authUser?.email) {
+      return "Não foi possível identificar a conta atual.";
+    }
+
+    const handle = normalizeAccountId(handleValue);
+    if (handle.length < 4) {
+      return "O ID precisa ter pelo menos 4 caracteres.";
+    }
+
+    const recoveryEmail = authUser.email;
+    const { error: handleError } = await supabase.from("account_access").insert({
+      user_id: authUser.id,
+      handle,
+      recovery_email: recoveryEmail,
+    });
+    if (handleError) {
+      return handleError.code === "23505" ? "Esse ID já está em uso." : handleError.message;
+    }
+
+    const { data, error } = await supabase.auth.updateUser({
+      email: accountIdToTechnicalEmail(handle),
+    });
+    if (error) {
+      await supabase.from("account_access").delete().eq("user_id", authUser.id);
+      return error.message;
+    }
+
+    if (data.user) {
+      setAuthUser(data.user);
+    }
+    return null;
   }
 
   async function handlePasswordUpdate(password: string) {
@@ -2974,6 +3061,13 @@ export default function HomePage() {
 
     if (nextPin === resident.pin) {
       saveLastResident(resident.id);
+      if (supabase && authUser && !resident.id.startsWith("local-")) {
+        void supabase
+          .from("residents")
+          .update({ auth_user_id: authUser.id })
+          .eq("id", resident.id)
+          .is("auth_user_id", null);
+      }
       runScreenTransition("enter", () => {
         setActiveResident(resident);
         setSelectedResident(null);
@@ -3783,6 +3877,14 @@ export default function HomePage() {
     );
   }
 
+  if (authUser?.email && !authUser.email.endsWith("@accounts.jtag.app")) {
+    return (
+      <main className={screenShellClassName}>
+        <LegacyAccountMigrationScreen email={authUser.email} onSubmit={handleMigrateLegacyAccount} />
+      </main>
+    );
+  }
+
   if (!authUser && !hasLocalHouseholdAccess) {
     return (
       <main className={screenShellClassName}>
@@ -3797,7 +3899,9 @@ export default function HomePage() {
         <AuthGate
           hasInvite={Boolean(pendingInviteCode)}
           onRequestPasswordReset={handlePasswordResetRequest}
-          onSubmit={(mode, email, password) => void handleAuthSubmit(mode, email, password)}
+          onSubmit={(mode, accountId, password, legacyEmail) =>
+            void handleAuthSubmit(mode, accountId, password, legacyEmail)
+          }
           onShowReleaseNotes={() => setShowReleaseNotes(true)}
         />
         {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
@@ -4151,6 +4255,8 @@ export default function HomePage() {
         ) : null}
         {profileModal === "edit" ? (
           <EditResidentModal
+            accountEmail={authUser?.email ?? ""}
+            isAnonymousAccount={Boolean(authUser?.email?.endsWith("@accounts.jtag.app"))}
             birthday={appState.birthdays.find((birthday) => birthday.profileResidentId === activeResident.id)}
             photo={editResidentPhoto || activeResident.photo || ""}
             resident={activeResident}
@@ -4160,6 +4266,8 @@ export default function HomePage() {
               setProfileModal(null);
             }}
             onDelete={handleDeleteResident}
+            onAddAccountEmail={handleAddAccountEmail}
+            onAddAccountPassword={handleAddAccountPassword}
             onPhotoSelect={setEditResidentPhoto}
             onThemePreview={handlePreviewTheme}
             onSubmit={handleUpdateResident}
@@ -4972,30 +5080,39 @@ function AuthGate({
   hasInvite: boolean;
   onRequestPasswordReset: (email: string) => Promise<string | null>;
   onShowReleaseNotes: () => void;
-  onSubmit: (mode: "sign-in" | "sign-up", email: string, password: string) => void;
+  onSubmit: (mode: "sign-in" | "sign-up", accountId: string, password: string, legacyEmail: boolean) => void;
 }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">(hasInvite ? "sign-up" : "sign-in");
   const [email, setEmail] = useState("");
+  const [rememberAccess, setRememberAccess] = useState(true);
   const [resetStatus, setResetStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [resetError, setResetError] = useState("");
+  const [legacyEmailAccess, setLegacyEmailAccess] = useState(false);
   const isSignUp = mode === "sign-up";
 
   useEffect(() => {
-    setEmail(window.localStorage.getItem(LAST_AUTH_EMAIL_KEY) ?? "");
+    const shouldRemember = window.localStorage.getItem(REMEMBER_AUTH_KEY) !== "false";
+    setRememberAccess(shouldRemember);
+    setEmail(shouldRemember ? window.localStorage.getItem(LAST_AUTH_ID_KEY) ?? "" : "");
   }, []);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const emailValue = email.trim();
+    const emailValue = legacyEmailAccess ? email.trim() : normalizeAccountId(email);
     const password = String(form.get("password") ?? "");
 
-    if (!emailValue || password.length < 6) {
+    if (emailValue.length < 4 || password.length < 6) {
       return;
     }
 
-    window.localStorage.setItem(LAST_AUTH_EMAIL_KEY, emailValue);
-    onSubmit(mode, emailValue, password);
+    window.localStorage.setItem(REMEMBER_AUTH_KEY, String(rememberAccess));
+    if (rememberAccess) {
+      window.localStorage.setItem(LAST_AUTH_ID_KEY, emailValue);
+    } else {
+      window.localStorage.removeItem(LAST_AUTH_ID_KEY);
+    }
+    onSubmit(mode, emailValue, password, legacyEmailAccess);
   }
 
   async function handlePasswordReset() {
@@ -5055,23 +5172,44 @@ function AuthGate({
           </button>
         </div>
         <div className="field">
-          <label htmlFor="auth-email">E-mail</label>
+          <label htmlFor="auth-email">{legacyEmailAccess ? "E-mail antigo" : "ID de acesso"}</label>
           <input
             id="auth-email"
-            name="email"
-            autoComplete="email username"
-            inputMode="email"
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="voce@email.com"
+            name="username"
+            autoCapitalize="none"
+            autoComplete="username"
+            minLength={legacyEmailAccess ? undefined : 4}
+            onChange={(event) =>
+              setEmail(legacyEmailAccess ? event.target.value : normalizeAccountId(event.target.value))
+            }
+            pattern={legacyEmailAccess ? undefined : "[a-z0-9._-]{4,}"}
+            placeholder={legacyEmailAccess ? "voce@email.com" : "Ex: alcides.ramos"}
+            type={legacyEmailAccess ? "email" : "text"}
             required
             value={email}
           />
+          <small className="field-helper">
+            {legacyEmailAccess
+              ? "Somente para contas criadas antes do acesso por ID."
+              : "Use letras minúsculas, números, ponto, hífen ou sublinhado."}
+          </small>
           {resetStatus === "sent" ? (
             <p className="auth-feedback auth-feedback-success" role="status">
               Link enviado. Confira sua caixa de entrada e o spam.
             </p>
           ) : null}
         </div>
+        <label className="remember-access-check">
+          <input
+            checked={rememberAccess}
+            onChange={(event) => setRememberAccess(event.target.checked)}
+            type="checkbox"
+          />
+          <span>
+            <strong>Lembrar meu acesso</strong>
+            <small>Manter conectado e guardar o ID neste aparelho</small>
+          </span>
+        </label>
         <div className="field">
           <label htmlFor="auth-password">Senha</label>
           <input
@@ -5088,7 +5226,7 @@ function AuthGate({
           <Check size={18} />
           {hasInvite ? (isSignUp ? "Criar conta e continuar" : "Entrar e continuar") : isSignUp ? "Criar conta" : "Entrar"}
         </button>
-        {!isSignUp ? (
+        {!isSignUp && legacyEmailAccess ? (
           <button
             className="auth-text-button"
             disabled={resetStatus === "sending"}
@@ -5102,6 +5240,19 @@ function AuthGate({
           <p className="auth-feedback auth-feedback-error" role="alert">
             {resetError}
           </p>
+        ) : null}
+        {!isSignUp ? (
+          <button
+            className="auth-text-button"
+            onClick={() => {
+              setLegacyEmailAccess((current) => !current);
+              setEmail("");
+              setResetError("");
+            }}
+            type="button"
+          >
+            {legacyEmailAccess ? "Voltar para acesso com ID" : "Usar acesso antigo por e-mail"}
+          </button>
         ) : null}
       </form>
     </section>
@@ -5207,6 +5358,64 @@ function PasswordRecoveryScreen({
           </button>
         </form>
       )}
+    </section>
+  );
+}
+
+function LegacyAccountMigrationScreen({
+  email,
+  onSubmit,
+}: {
+  email: string;
+  onSubmit: (handle: string) => Promise<string | null>;
+}) {
+  const [handle, setHandle] = useState("");
+  const [status, setStatus] = useState<"idle" | "saving">("idle");
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setStatus("saving");
+    const migrationError = await onSubmit(handle);
+    if (migrationError) {
+      setStatus("idle");
+      setError(migrationError);
+    }
+  }
+
+  return (
+    <section className="household-setup auth-setup password-recovery-screen">
+      <div className="household-hero">
+        <span className="household-icon">
+          <KeyRound size={32} />
+        </span>
+        <p className="eyebrow">Atualização de acesso</p>
+        <h1>Escolha seu ID</h1>
+        <p>Sua conta e todos os dados serão mantidos. Depois disso, você entrará somente com ID e senha.</p>
+      </div>
+      <form className="household-card auth-card" onSubmit={handleSubmit}>
+        <div className="field">
+          <label htmlFor="migration-handle">Novo ID de acesso</label>
+          <input
+            autoCapitalize="none"
+            autoComplete="username"
+            id="migration-handle"
+            minLength={4}
+            onChange={(event) => setHandle(normalizeAccountId(event.target.value))}
+            pattern="[a-z0-9._-]{4,}"
+            placeholder="Ex: juliano.ramos"
+            required
+            value={handle}
+          />
+          <small className="field-helper">O e-mail {email} ficará guardado apenas para recuperação.</small>
+        </div>
+        {error ? <p className="auth-feedback auth-feedback-error">{error}</p> : null}
+        <button className="primary-action" disabled={status === "saving"} type="submit">
+          <Check size={18} />
+          {status === "saving" ? "Atualizando…" : "Salvar ID e continuar"}
+        </button>
+      </form>
     </section>
   );
 }
@@ -6162,25 +6371,64 @@ function VisibilityPicker({ defaultValue = "household" }: { defaultValue?: ItemV
 }
 
 function EditResidentModal({
+  accountEmail,
   birthday,
+  isAnonymousAccount,
   photo,
   resident,
   onClose,
   onDelete,
+  onAddAccountEmail,
+  onAddAccountPassword,
   onPhotoSelect,
   onThemePreview,
   onSubmit,
 }: {
+  accountEmail: string;
   birthday?: Birthday;
+  isAnonymousAccount: boolean;
   photo: string;
   resident: Resident;
   onClose: () => void;
   onDelete: () => void;
+  onAddAccountEmail: (email: string) => Promise<string | null>;
+  onAddAccountPassword: (password: string) => Promise<string | null>;
   onPhotoSelect: (photo: string) => void;
   onThemePreview: (theme: ProfileThemeId) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [accountStatus, setAccountStatus] = useState<"idle" | "saving" | "sent" | "saved">("idle");
+  const [accountError, setAccountError] = useState("");
+
+  async function handleAccountEmail() {
+    const input = document.querySelector<HTMLInputElement>("#profile-account-email");
+    const email = input?.value.trim() ?? "";
+    if (!email) {
+      setAccountError("Digite um e-mail válido.");
+      return;
+    }
+    setAccountError("");
+    setAccountStatus("saving");
+    const error = await onAddAccountEmail(email);
+    setAccountStatus(error ? "idle" : "sent");
+    setAccountError(error ?? "");
+  }
+
+  async function handleAccountPassword() {
+    const password = document.querySelector<HTMLInputElement>("#profile-account-password")?.value ?? "";
+    const confirmation =
+      document.querySelector<HTMLInputElement>("#profile-account-password-confirmation")?.value ?? "";
+    if (password.length < 6 || password !== confirmation) {
+      setAccountError(password.length < 6 ? "Use pelo menos 6 caracteres." : "As senhas não são iguais.");
+      return;
+    }
+    setAccountError("");
+    setAccountStatus("saving");
+    const error = await onAddAccountPassword(password);
+    setAccountStatus(error ? "idle" : "saved");
+    setAccountError(error ?? "");
+  }
 
   return (
     <div className={backdropClassName}>
@@ -6249,6 +6497,70 @@ function EditResidentModal({
             ))}
           </div>
         </div>
+        <section className="profile-account-section">
+          <div>
+            <p className="eyebrow">Recuperação de acesso</p>
+            <h3>{isAnonymousAccount ? "Adicione seu e-mail quando quiser" : "Conta protegida"}</h3>
+          </div>
+          {isAnonymousAccount ? (
+            <>
+              <p>O e-mail ficará opcional e será usado somente para recuperar o acesso.</p>
+              <div className="field">
+                <label htmlFor="profile-account-email">E-mail</label>
+                <input
+                  autoComplete="email"
+                  id="profile-account-email"
+                  inputMode="email"
+                  placeholder="voce@email.com"
+                  type="email"
+                />
+              </div>
+              <button
+                className="secondary-action"
+                disabled={accountStatus === "saving" || accountStatus === "sent"}
+                onClick={() => void handleAccountEmail()}
+                type="button"
+              >
+                {accountStatus === "sent" ? "E-mail salvo" : "Salvar e-mail de recuperação"}
+              </button>
+              {accountStatus === "sent" ? (
+                <p className="auth-feedback auth-feedback-success" role="status">
+                  E-mail de recuperação salvo na sua conta.
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <p>{accountEmail ? `E-mail vinculado: ${accountEmail}` : "E-mail confirmado."}</p>
+              <div className="field">
+                <label htmlFor="profile-account-password">Criar ou alterar senha</label>
+                <input id="profile-account-password" minLength={6} placeholder="No mínimo 6 caracteres" type="password" />
+              </div>
+              <div className="field">
+                <label htmlFor="profile-account-password-confirmation">Confirmar senha</label>
+                <input
+                  id="profile-account-password-confirmation"
+                  minLength={6}
+                  placeholder="Digite novamente"
+                  type="password"
+                />
+              </div>
+              <button
+                className="secondary-action"
+                disabled={accountStatus === "saving"}
+                onClick={() => void handleAccountPassword()}
+                type="button"
+              >
+                {accountStatus === "saved" ? "Senha salva" : "Salvar senha de acesso"}
+              </button>
+            </>
+          )}
+          {accountError ? (
+            <p className="auth-feedback auth-feedback-error" role="alert">
+              {accountError}
+            </p>
+          ) : null}
+        </section>
         <button className="primary-action" type="submit">
           <Check size={18} />
           Salvar perfil
