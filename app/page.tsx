@@ -545,10 +545,16 @@ function getScreenShellClass(theme?: string | null) {
 }
 
 const releaseNotes = {
-  version: "v0.8",
-  title: "Novidades do J-tag",
+  version: "v0.9",
+  title: "Timeline em movimento",
   date: "18/07/2026",
   items: [
+    "A Timeline agora pode ser reproduzida como stories, começando pelos acontecimentos mais recentes.",
+    "O player ganhou progresso automático, avanço e retorno por toque, gesto para fechar e botão de play no dashboard.",
+    "Stories com foto valorizam a imagem sem textos no centro; acontecimentos sem foto recebem um visual personalizado.",
+    "Fotos de stories e perfis agora são convertidas para WebP, compactadas de forma adaptativa e carregadas sob demanda.",
+    "O acesso por PIN usa o teclado nativo do celular e mantém o perfil protegido acima do teclado.",
+    "Os cards de lembretes e aniversários continuam abrindo diretamente seus calendários.",
     "Contas novas agora usam ID e senha, e o cadastro exige um código válido da família.",
     "O acesso antigo por e-mail foi removido e o ID pode ficar lembrado com segurança no aparelho.",
     "Stories da casa agora avançam em sequência a cada 10 segundos, com progresso, navegação e gesto para fechar.",
@@ -5107,7 +5113,7 @@ function ActivityTimelineModal({
   if (isPlaying && events.length) {
     return (
       <ActivityTimelineStoryModal
-        events={[...events].reverse()}
+        events={events}
         messages={messages}
         residents={residents}
         onClose={() => setIsPlaying(false)}
