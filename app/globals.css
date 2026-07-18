@@ -964,6 +964,32 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   padding: 11px 12px;
 }
 
+.auth-family-code-field {
+  align-items: center;
+  display: grid;
+  position: relative;
+}
+
+.auth-family-code-field > svg {
+  color: rgba(255, 255, 255, 0.55);
+  left: 12px;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.auth-family-code-field input {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding-left: 42px;
+  text-transform: uppercase;
+}
+
+.auth-family-code-field input:read-only {
+  color: rgba(255, 255, 255, 0.7);
+  cursor: default;
+}
+
 .remember-access-check input {
   accent-color: #e50914;
   height: 18px;

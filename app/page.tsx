@@ -241,7 +241,6 @@ const STORAGE_KEY = "jtag-mvp-state-v2";
 const LAST_RESIDENT_KEY = "jtag-last-resident-id-v2";
 const CALENDAR_VIEW_KEY = "jtag-calendar-view-mode";
 const RECENT_HOUSEHOLDS_KEY = "jtag-recent-households-v1";
-const LAST_AUTH_EMAIL_KEY = "jtag-last-auth-email-v1";
 const LAST_AUTH_ID_KEY = "jtag-last-auth-id-v1";
 const REMEMBER_AUTH_KEY = "jtag-remember-auth-v1";
 const ACCOUNT_EMAIL_DOMAIN = "j-tag-indol.vercel.app";
@@ -451,10 +450,16 @@ function getScreenShellClass(theme?: string | null) {
 }
 
 const releaseNotes = {
-  version: "v0.7",
+  version: "v0.8",
   title: "Novidades do J-tag",
   date: "18/07/2026",
   items: [
+    "Contas novas agora usam ID e senha, e o cadastro exige um código válido da família.",
+    "O acesso antigo por e-mail foi removido e o ID pode ficar lembrado com segurança no aparelho.",
+    "Stories da casa agora avançam em sequência a cada 10 segundos, com progresso, navegação e gesto para fechar.",
+    "Dias com vários lembretes ou aniversários mostram um único indicador e abrem uma lista organizada.",
+    "O resumo do clima foi redesenhado com previsão mais ampla e colunas alinhadas de mínima e máxima.",
+    "A seleção de perfis ficou mais compacta e consistente em celulares Samsung e outras telas altas.",
     "O card do dia agora abre um resumo com temperatura, umidade e previsão compacta para os próximos 5 dias.",
     "Modais, stories e detalhes do calendário ganharam transições suaves de entrada e saída.",
     "Avisos temporários, como a limitação de tela cheia no navegador, agora desaparecem com uma animação suave.",
@@ -2734,17 +2739,31 @@ export default function HomePage() {
     mode: "sign-in" | "sign-up",
     accountId: string,
     password: string,
-    legacyEmail = false,
+    familyCode = "",
   ) {
     if (!supabase) {
       window.alert("Supabase não está configurado neste ambiente.");
       return;
     }
 
+    const normalizedFamilyCode = normalizeHouseholdCode(familyCode || pendingInviteCode);
+    if (mode === "sign-up") {
+      if (normalizedFamilyCode.length < 4) {
+        window.alert("Informe o código da família para criar sua conta.");
+        return;
+      }
+      const invitedHousehold = await loadRemoteStateByCode(normalizedFamilyCode);
+      if (!invitedHousehold?.household) {
+        window.alert("Código da família não encontrado.");
+        return;
+      }
+      setPendingInviteCode(normalizedFamilyCode);
+    }
+
     setAuthTransitionActive(true);
 
     const credentials = {
-      email: legacyEmail ? accountId.trim() : accountIdToTechnicalEmail(accountId),
+      email: accountIdToTechnicalEmail(accountId),
       password,
     };
     const { data, error } =
@@ -2760,7 +2779,7 @@ export default function HomePage() {
 
     if (data.user) {
       setAuthUser(data.user);
-      if (mode === "sign-up" && !legacyEmail) {
+      if (mode === "sign-up") {
         const handle = normalizeAccountId(accountId);
         const { error: accessError } = await supabase.from("account_access").insert({
           user_id: data.user.id,
@@ -2779,11 +2798,12 @@ export default function HomePage() {
         }
       }
       const households = await refreshAccountHouseholds(data.user.id);
-      const inviteState = pendingInviteCode ? await loadRemoteStateByCode(pendingInviteCode) : null;
+      const effectiveInviteCode = normalizedFamilyCode || pendingInviteCode;
+      const inviteState = effectiveInviteCode ? await loadRemoteStateByCode(effectiveInviteCode) : null;
       const inviteMembership = inviteState?.household
         ? households.find((household) => household.id === inviteState.household?.id)
         : null;
-      const autoHousehold = inviteMembership ?? (!pendingInviteCode && households.length === 1 ? households[0] : null);
+      const autoHousehold = inviteMembership ?? (!effectiveInviteCode && households.length === 1 ? households[0] : null);
       const remoteState = inviteState?.household && inviteMembership
         ? inviteState
         : autoHousehold
@@ -2801,16 +2821,6 @@ export default function HomePage() {
       setAuthTransitionActive(false);
       window.alert("Conta criada. Se o Supabase pedir confirmação, confirme o e-mail antes de entrar.");
     }
-  }
-
-  async function handlePasswordResetRequest(email: string) {
-    if (!supabase) {
-      return "Supabase não está configurado neste ambiente.";
-    }
-
-    const redirectTo = `${window.location.origin}${window.location.pathname}`;
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
-    return error?.message ?? null;
   }
 
   async function handleAddAccountEmail(email: string) {
@@ -3916,9 +3926,8 @@ export default function HomePage() {
 
         <AuthGate
           hasInvite={Boolean(pendingInviteCode)}
-          onRequestPasswordReset={handlePasswordResetRequest}
-          onSubmit={(mode, accountId, password, legacyEmail) =>
-            void handleAuthSubmit(mode, accountId, password, legacyEmail)
+          onSubmit={(mode, accountId, password, familyCode) =>
+            void handleAuthSubmit(mode, accountId, password, familyCode)
           }
           onShowReleaseNotes={() => setShowReleaseNotes(true)}
         />
@@ -4984,6 +4993,11 @@ function DailyMessageStoryModal({
             setDragOffset(0);
           }
         }}
+        onPointerCancel={() => {
+          dragStartY.current = null;
+          draggedStoryRef.current = false;
+          setDragOffset(0);
+        }}
         style={{ "--story-drag-y": `${dragOffset}px` } as CSSProperties}
       >
         {message.photo ? (
@@ -5182,21 +5196,21 @@ function LocationMapModal({
 
 function AuthGate({
   hasInvite,
-  onRequestPasswordReset,
   onShowReleaseNotes,
   onSubmit,
 }: {
   hasInvite: boolean;
-  onRequestPasswordReset: (email: string) => Promise<string | null>;
   onShowReleaseNotes: () => void;
-  onSubmit: (mode: "sign-in" | "sign-up", accountId: string, password: string, legacyEmail: boolean) => void;
+  onSubmit: (mode: "sign-in" | "sign-up", accountId: string, password: string, familyCode: string) => void;
 }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">(hasInvite ? "sign-up" : "sign-in");
   const [email, setEmail] = useState("");
+  const [familyCode, setFamilyCode] = useState(() =>
+    typeof window === "undefined"
+      ? ""
+      : normalizeHouseholdCode(new URLSearchParams(window.location.search).get("lar") ?? ""),
+  );
   const [rememberAccess, setRememberAccess] = useState(true);
-  const [resetStatus, setResetStatus] = useState<"idle" | "sending" | "sent">("idle");
-  const [resetError, setResetError] = useState("");
-  const [legacyEmailAccess, setLegacyEmailAccess] = useState(false);
   const isSignUp = mode === "sign-up";
 
   useEffect(() => {
@@ -5208,10 +5222,10 @@ function AuthGate({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const emailValue = legacyEmailAccess ? email.trim() : normalizeAccountId(email);
+    const emailValue = normalizeAccountId(email);
     const password = String(form.get("password") ?? "");
 
-    if (emailValue.length < 4 || password.length < 6) {
+    if (emailValue.length < 4 || password.length < 6 || (isSignUp && familyCode.length < 4)) {
       return;
     }
 
@@ -5221,27 +5235,7 @@ function AuthGate({
     } else {
       window.localStorage.removeItem(LAST_AUTH_ID_KEY);
     }
-    onSubmit(mode, emailValue, password, legacyEmailAccess);
-  }
-
-  async function handlePasswordReset() {
-    const emailValue = email.trim();
-    if (!emailValue || resetStatus === "sending") {
-      setResetError("Digite seu e-mail para receber o link.");
-      return;
-    }
-
-    setResetError("");
-    setResetStatus("sending");
-    const error = await onRequestPasswordReset(emailValue);
-    if (error) {
-      setResetStatus("idle");
-      setResetError(error);
-      return;
-    }
-
-    window.localStorage.setItem(LAST_AUTH_EMAIL_KEY, emailValue);
-    setResetStatus("sent");
+    onSubmit(mode, emailValue, password, familyCode);
   }
 
   return (
@@ -5281,32 +5275,21 @@ function AuthGate({
           </button>
         </div>
         <div className="field">
-          <label htmlFor="auth-email">{legacyEmailAccess ? "E-mail antigo" : "ID de acesso"}</label>
+          <label htmlFor="auth-email">ID de acesso</label>
           <input
             id="auth-email"
             name="username"
             autoCapitalize="none"
             autoComplete="username"
-            minLength={legacyEmailAccess ? undefined : 4}
-            onChange={(event) =>
-              setEmail(legacyEmailAccess ? event.target.value : normalizeAccountId(event.target.value))
-            }
-            pattern={legacyEmailAccess ? undefined : "[a-z0-9._-]{4,}"}
-            placeholder={legacyEmailAccess ? "voce@email.com" : "Ex: alcides.ramos"}
-            type={legacyEmailAccess ? "email" : "text"}
+            minLength={4}
+            onChange={(event) => setEmail(normalizeAccountId(event.target.value))}
+            pattern="[a-z0-9._-]{4,}"
+            placeholder="Ex: alcides.ramos"
+            type="text"
             required
             value={email}
           />
-          <small className="field-helper">
-            {legacyEmailAccess
-              ? "Somente para contas criadas antes do acesso por ID."
-              : "Use letras minúsculas, números, ponto, hífen ou sublinhado."}
-          </small>
-          {resetStatus === "sent" ? (
-            <p className="auth-feedback auth-feedback-success" role="status">
-              Link enviado. Confira sua caixa de entrada e o spam.
-            </p>
-          ) : null}
+          <small className="field-helper">Use letras minúsculas, números, ponto, hífen ou sublinhado.</small>
         </div>
         <label className="remember-access-check">
           <input
@@ -5331,38 +5314,31 @@ function AuthGate({
             required
           />
         </div>
+        {isSignUp ? (
+          <div className="field">
+            <label htmlFor="auth-family-code">Código da família</label>
+            <div className="auth-family-code-field">
+              <House size={18} />
+              <input
+                autoCapitalize="characters"
+                id="auth-family-code"
+                maxLength={8}
+                onChange={(event) => setFamilyCode(normalizeHouseholdCode(event.target.value))}
+                placeholder="Ex: ABC123"
+                readOnly={hasInvite}
+                required
+                value={familyCode}
+              />
+            </div>
+            <small className="field-helper">
+              {hasInvite ? "Código preenchido pelo convite recebido." : "Peça este código para alguém da família."}
+            </small>
+          </div>
+        ) : null}
         <button className="primary-action" type="submit">
           <Check size={18} />
           {hasInvite ? (isSignUp ? "Criar conta e continuar" : "Entrar e continuar") : isSignUp ? "Criar conta" : "Entrar"}
         </button>
-        {!isSignUp && legacyEmailAccess ? (
-          <button
-            className="auth-text-button"
-            disabled={resetStatus === "sending"}
-            onClick={() => void handlePasswordReset()}
-            type="button"
-          >
-            {resetStatus === "sending" ? "Enviando link…" : "Esqueci minha senha"}
-          </button>
-        ) : null}
-        {resetError ? (
-          <p className="auth-feedback auth-feedback-error" role="alert">
-            {resetError}
-          </p>
-        ) : null}
-        {!isSignUp ? (
-          <button
-            className="auth-text-button"
-            onClick={() => {
-              setLegacyEmailAccess((current) => !current);
-              setEmail("");
-              setResetError("");
-            }}
-            type="button"
-          >
-            {legacyEmailAccess ? "Voltar para acesso com ID" : "Usar acesso antigo por e-mail"}
-          </button>
-        ) : null}
       </form>
     </section>
   );
@@ -6772,6 +6748,7 @@ function CalendarModal({
     items: CalendarItem[];
   } | null>(null);
   const [isCalendarDetailClosing, setIsCalendarDetailClosing] = useState(false);
+  const [isCalendarDayListClosing, setIsCalendarDayListClosing] = useState(false);
   const [monthMotionDirection, setMonthMotionDirection] = useState<"next" | "prev">("next");
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const { backdropClassName, requestClose } = useModalClose(onClose);
@@ -6894,6 +6871,17 @@ function CalendarModal({
     window.setTimeout(() => {
       setSelectedCalendarItem(null);
       setIsCalendarDetailClosing(false);
+    }, MODAL_EXIT_MS);
+  }
+
+  function closeCalendarDayList() {
+    if (isCalendarDayListClosing) {
+      return;
+    }
+    setIsCalendarDayListClosing(true);
+    window.setTimeout(() => {
+      setSelectedCalendarDay(null);
+      setIsCalendarDayListClosing(false);
     }, MODAL_EXIT_MS);
   }
 
@@ -7094,12 +7082,16 @@ function CalendarModal({
         </button>
 
         {selectedCalendarDay ? (
-          <div className="calendar-detail-backdrop">
+          <div
+            className={`calendar-detail-backdrop ${
+              isCalendarDayListClosing ? "calendar-detail-backdrop-closing" : ""
+            }`}
+          >
             <article className="calendar-detail-card calendar-day-list-card">
               <button
                 className="close-button"
                 type="button"
-                onClick={() => setSelectedCalendarDay(null)}
+                onClick={closeCalendarDayList}
                 aria-label="Fechar eventos do dia"
               >
                 <X size={18} />
