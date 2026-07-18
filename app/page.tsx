@@ -5316,19 +5316,21 @@ function ActivityTimelineStoryModal({
             <small>{formatActivityRelativeTime(event.createdAt)}</small>
           </span>
         </header>
-        <div className="activity-story-content">
-          {event.kind !== "message" ? (
-            <span className={`activity-story-icon activity-kind-${event.kind}`}>
-              <StoryIcon size={62} strokeWidth={1.7} />
-            </span>
-          ) : null}
-          <p>{resident?.name ?? "Alguém da casa"}</p>
-          <h2>{event.title}</h2>
-          {event.detail ? <strong>{event.detail}</strong> : null}
-          <small>
-            {index + 1} de {events.length}
-          </small>
-        </div>
+        {!linkedMessage?.photo ? (
+          <div className="activity-story-content">
+            {event.kind !== "message" ? (
+              <span className={`activity-story-icon activity-kind-${event.kind}`}>
+                <StoryIcon size={62} strokeWidth={1.7} />
+              </span>
+            ) : null}
+            <p>{resident?.name ?? "Alguém da casa"}</p>
+            <h2>{event.title}</h2>
+            {event.detail ? <strong>{event.detail}</strong> : null}
+            <small>
+              {index + 1} de {events.length}
+            </small>
+          </div>
+        ) : null}
         <button
           className="daily-story-tap-zone daily-story-tap-previous"
           disabled={index === 0}

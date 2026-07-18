@@ -2406,11 +2406,6 @@ html:-webkit-full-screen .modal-backdrop {
   padding-inline: 28px;
 }
 
-.activity-story-without-icon.daily-story-photo .activity-story-content {
-  justify-content: flex-end;
-  padding-bottom: 96px;
-}
-
 .activity-story .daily-story-tap-zone {
   width: 50%;
   z-index: 4;
