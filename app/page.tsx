@@ -6767,6 +6767,10 @@ function CalendarModal({
   const today = startOfToday();
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(today));
   const [selectedCalendarItem, setSelectedCalendarItem] = useState<CalendarItem | null>(null);
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState<{
+    date: Date;
+    items: CalendarItem[];
+  } | null>(null);
   const [isCalendarDetailClosing, setIsCalendarDetailClosing] = useState(false);
   const [monthMotionDirection, setMonthMotionDirection] = useState<"next" | "prev">("next");
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
@@ -6828,11 +6832,13 @@ function CalendarModal({
   function handleViewModeChange(mode: CalendarViewMode) {
     setViewMode(mode);
     setSelectedCalendarItem(null);
+    setSelectedCalendarDay(null);
     saveCalendarView(kind, mode);
   }
 
   function moveMonth(amount: number) {
     setSelectedCalendarItem(null);
+    setSelectedCalendarDay(null);
     setMonthMotionDirection(amount > 0 ? "next" : "prev");
     setCurrentMonth((month) => addMonths(month, amount));
   }
@@ -6969,22 +6975,23 @@ function CalendarModal({
                     >
                       <span>{day.day}</span>
                       <div className="calendar-day-events" aria-hidden={!dayItems.length}>
-                        {dayItems.slice(0, 2).map((item) => (
+                        {dayItems.length ? (
                           <button
                             className={`calendar-day-event ${kind === "birthday" ? "birthday-event" : ""}`}
                             type="button"
-                            key={item.id}
-                            onClick={() => setSelectedCalendarItem(item)}
-                            aria-label={`Abrir ${kind === "birthday" ? "aniversário" : "lembrete"}`}
+                            onClick={() => setSelectedCalendarDay({ date: day.date, items: dayItems })}
+                            aria-label={`Abrir ${dayItems.length} ${
+                              kind === "birthday" ? "aniversários" : "lembretes"
+                            } deste dia`}
                           >
                             {kind === "birthday" ? (
                               <Cake size={14} />
                             ) : (
-                              <ReminderIconBadge icon={(item as Reminder).icon} />
+                              <ReminderIconBadge icon={(dayItems[0] as Reminder).icon} />
                             )}
+                            {dayItems.length > 1 ? <small>{dayItems.length}</small> : null}
                           </button>
-                        ))}
-                        {dayItems.length > 2 ? <small>+{dayItems.length - 2}</small> : null}
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -7085,6 +7092,68 @@ function CalendarModal({
           <Plus size={18} />
           Adicionar
         </button>
+
+        {selectedCalendarDay ? (
+          <div className="calendar-detail-backdrop">
+            <article className="calendar-detail-card calendar-day-list-card">
+              <button
+                className="close-button"
+                type="button"
+                onClick={() => setSelectedCalendarDay(null)}
+                aria-label="Fechar eventos do dia"
+              >
+                <X size={18} />
+              </button>
+              <div className="calendar-day-list-header">
+                <span className={`calendar-detail-icon ${kind === "birthday" ? "birthday-detail-icon" : ""}`}>
+                  {kind === "birthday" ? <Cake size={24} /> : <CalendarDays size={24} />}
+                </span>
+                <div>
+                  <p className="eyebrow">{kind === "birthday" ? "Aniversários do dia" : "Lembretes do dia"}</p>
+                  <h3>
+                    {selectedCalendarDay.date.toLocaleDateString("pt-BR", {
+                      day: "2-digit",
+                      month: "long",
+                    })}
+                  </h3>
+                </div>
+              </div>
+              <div className="calendar-day-list">
+                {selectedCalendarDay.items.map((item) => (
+                  <button
+                    className="calendar-day-list-item"
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCalendarDay(null);
+                      setSelectedCalendarItem(item);
+                    }}
+                  >
+                    <span>
+                      {kind === "birthday" ? (
+                        <Cake size={17} />
+                      ) : (
+                        <ReminderIconBadge icon={(item as Reminder).icon} />
+                      )}
+                    </span>
+                    <strong>{"text" in item ? item.text : item.name}</strong>
+                    <ChevronRight size={17} />
+                  </button>
+                ))}
+              </div>
+              <small className="calendar-day-list-count">
+                {selectedCalendarDay.items.length}{" "}
+                {selectedCalendarDay.items.length === 1
+                  ? kind === "birthday"
+                    ? "aniversário"
+                    : "lembrete"
+                  : kind === "birthday"
+                    ? "aniversários"
+                    : "lembretes"}
+              </small>
+            </article>
+          </div>
+        ) : null}
 
         {selectedCalendarItem ? (
           <div className={`calendar-detail-backdrop ${isCalendarDetailClosing ? "calendar-detail-backdrop-closing" : ""}`}>

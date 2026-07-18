@@ -4251,6 +4251,7 @@ html:fullscreen body {
   height: 24px;
   justify-content: center;
   padding: 0;
+  position: relative;
   width: 24px;
 }
 
@@ -4266,9 +4267,88 @@ html:fullscreen body {
   color: #ffd08a;
 }
 
-.calendar-day-events small {
+.calendar-day-event > small {
+  align-items: center;
+  background: var(--red);
+  border: 2px solid #181b1e;
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 0.58rem;
+  font-weight: 800;
+  height: 16px;
+  justify-content: center;
+  min-width: 16px;
+  padding: 0 3px;
+  position: absolute;
+  right: -5px;
+  top: -5px;
+}
+
+.calendar-day-list-card {
+  gap: 18px;
+  max-width: 440px;
+}
+
+.calendar-day-list-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  padding-right: 42px;
+}
+
+.calendar-day-list-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.calendar-day-list-header h3 {
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.calendar-day-list {
+  display: grid;
+  gap: 8px;
+}
+
+.calendar-day-list-item {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.065);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 9px;
+  color: #fff;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  min-height: 54px;
+  padding: 9px 12px;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.calendar-day-list-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateX(2px);
+}
+
+.calendar-day-list-item > span {
+  align-items: center;
+  color: #ffd08a;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.calendar-day-list-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-day-list-count {
   color: var(--muted);
-  font-size: 0.68rem;
+  text-align: center;
 }
 
 .reminder-dot,
