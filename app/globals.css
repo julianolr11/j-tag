@@ -4289,8 +4289,10 @@ html:-webkit-full-screen .modal-backdrop {
   position: relative;
 }
 
-.family-network-card-icon {
-  color: #9dcbff;
+.dashboard-card-icon.family-network-card-icon {
+  background: rgba(47, 128, 237, 0.14);
+  border-color: rgba(105, 174, 255, 0.3);
+  color: #69aeff;
 }
 
 .family-card-invite-badge {

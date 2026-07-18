@@ -568,10 +568,15 @@ function getScreenShellClass(theme?: string | null) {
 }
 
 const releaseNotes = {
-  version: "v0.9",
-  title: "Timeline em movimento",
+  version: "v0.10",
+  title: "Famílias conectadas",
   date: "18/07/2026",
   items: [
+    "A nova Rede da família conecta diferentes lares em um mapa visual com linhas orgânicas.",
+    "As fotos dos perfis orbitam lentamente cada família, mantendo os rostos sempre na posição correta.",
+    "Agora é possível convidar outra família usando apenas o código da casa.",
+    "A família destinatária recebe um convite em tempo real para aceitar ou recusar a conexão.",
+    "O novo card Rede da família ganhou um planeta azul e mostra convites pendentes.",
     "A Timeline agora pode ser reproduzida como stories, começando pelos acontecimentos mais recentes.",
     "O player ganhou progresso automático, avanço e retorno por toque, gesto para fechar e botão de play no dashboard.",
     "Stories com foto valorizam a imagem sem textos no centro; acontecimentos sem foto recebem um visual personalizado.",
@@ -3152,23 +3157,14 @@ export default function HomePage() {
     setFamilyConnectionInvites(result.incoming);
   }
 
-  async function handleRequestFamilyConnection(inviteLink: string) {
+  async function handleRequestFamilyConnection(familyCode: string) {
     if (!supabase || !appState.household || !activeResident) {
       return "Não foi possível identificar a família atual.";
     }
 
-    let code = "";
-    try {
-      const url = new URL(inviteLink.trim(), window.location.origin);
-      code = normalizeHouseholdCode(url.searchParams.get("lar") ?? "");
-    } catch {
-      code = "";
-    }
-    if (!code) {
-      code = normalizeHouseholdCode(inviteLink);
-    }
+    const code = normalizeHouseholdCode(familyCode);
     if (code.length < 4) {
-      return "Cole um link de convite válido.";
+      return "Digite um código de casa válido.";
     }
 
     const { data: target, error: targetError } = await supabase
@@ -5415,11 +5411,11 @@ function FamilyNetworkModal({
   onClose: () => void;
   onInviteResponse: (inviteId: string, accept: boolean) => void | Promise<void>;
   onOpenFamily: (family: FamilyNetworkItem) => void;
-  onRequestConnection: (inviteLink: string) => Promise<string | null>;
+  onRequestConnection: (familyCode: string) => Promise<string | null>;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
   const [showConnector, setShowConnector] = useState(false);
-  const [connectionLink, setConnectionLink] = useState("");
+  const [connectionCode, setConnectionCode] = useState("");
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [connectionError, setConnectionError] = useState("");
   const orderedFamilies = [
@@ -5506,26 +5502,29 @@ function FamilyNetworkModal({
                 event.preventDefault();
                 setConnectionError("");
                 setConnectionStatus("sending");
-                const error = await onRequestConnection(connectionLink);
+                const error = await onRequestConnection(connectionCode);
                 if (error) {
                   setConnectionError(error);
                   setConnectionStatus("idle");
                   return;
                 }
                 setConnectionStatus("sent");
-                setConnectionLink("");
+                setConnectionCode("");
               }}
             >
-              <label htmlFor="family-connection-link">Link de convite da outra família</label>
+              <label htmlFor="family-connection-code">Código da outra família</label>
               <div>
                 <input
-                  id="family-connection-link"
-                  type="url"
-                  inputMode="url"
-                  placeholder="https://…?lar=ABC123"
-                  value={connectionLink}
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  id="family-connection-code"
+                  inputMode="text"
+                  maxLength={8}
+                  placeholder="Ex: ABC123"
+                  type="text"
+                  value={connectionCode}
                   onChange={(event) => {
-                    setConnectionLink(event.target.value);
+                    setConnectionCode(normalizeHouseholdCode(event.target.value));
                     setConnectionStatus("idle");
                     setConnectionError("");
                   }}
