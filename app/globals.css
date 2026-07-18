@@ -2649,6 +2649,14 @@ html:-webkit-full-screen .modal-backdrop {
   overflow: hidden;
   position: relative;
   width: 100%;
+  touch-action: none;
+  transform: translateY(var(--story-drag-y, 0));
+  transition: transform 220ms cubic-bezier(0.2, 0.9, 0.16, 1), opacity 220ms ease;
+}
+
+.daily-story-dragging {
+  opacity: 0.82;
+  transition: none;
 }
 
 .daily-story-image,
@@ -2667,23 +2675,38 @@ html:-webkit-full-screen .modal-backdrop {
   background: linear-gradient(to bottom, rgba(0, 0, 0, 0.52), transparent 28%, transparent 52%, rgba(0, 0, 0, 0.82));
 }
 
-.daily-story-progress {
-  background: rgba(255, 255, 255, 0.28);
-  border-radius: 999px;
-  height: 3px;
+.daily-story-progress-group {
+  display: flex;
+  gap: 4px;
   left: 14px;
-  overflow: hidden;
   position: absolute;
   right: 14px;
   top: 12px;
-  z-index: 2;
+  z-index: 5;
 }
 
-.daily-story-progress span {
+.daily-story-progress {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  flex: 1;
+  height: 3px;
+  overflow: hidden;
+}
+
+.daily-story-progress i {
   background: #fff;
   display: block;
   height: 100%;
-  width: 100%;
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.daily-story-progress i.complete {
+  transform: scaleX(1);
+}
+
+.daily-story-progress i.active {
+  animation: dailyStoryProgress 10s linear both;
 }
 
 .daily-story-close {
@@ -2732,6 +2755,28 @@ html:-webkit-full-screen .modal-backdrop {
   position: absolute;
   right: 22px;
   z-index: 2;
+}
+
+.daily-story-tap-zone {
+  background: transparent;
+  border: 0;
+  bottom: 0;
+  position: absolute;
+  top: 82px;
+  width: 34%;
+  z-index: 2;
+}
+
+.daily-story-tap-zone:disabled {
+  pointer-events: none;
+}
+
+.daily-story-tap-previous {
+  left: 0;
+}
+
+.daily-story-tap-next {
+  right: 0;
 }
 
 .daily-story-message p {
@@ -5122,6 +5167,15 @@ html:fullscreen body {
     filter: blur(0);
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dailyStoryProgress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
   }
 }
 

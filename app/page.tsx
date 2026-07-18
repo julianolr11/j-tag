@@ -4382,8 +4382,9 @@ export default function HomePage() {
         ) : null}
         {selectedDailyMessage ? (
           <DailyMessageStoryModal
-            message={selectedDailyMessage}
-            resident={appState.residents.find((item) => item.id === selectedDailyMessage.residentId)}
+            initialMessageId={selectedDailyMessage.id}
+            messages={activeDailyMessages}
+            residents={appState.residents}
             onClose={() => setSelectedDailyMessage(null)}
           />
         ) : null}
@@ -4905,36 +4906,98 @@ function DailyMessageModal({
 }
 
 function DailyMessageStoryModal({
-  message,
-  resident,
+  initialMessageId,
+  messages,
+  residents,
   onClose,
 }: {
-  message: DailyMessage;
-  resident?: Resident;
+  initialMessageId: string;
+  messages: DailyMessage[];
+  residents: Resident[];
   onClose: () => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
+  const initialIndex = Math.max(0, messages.findIndex((item) => item.id === initialMessageId));
+  const [storyIndex, setStoryIndex] = useState(initialIndex);
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStartY = useRef<number | null>(null);
+  const draggedStoryRef = useRef(false);
+  const message = messages[storyIndex] ?? messages[0];
+  const resident = residents.find((item) => item.id === message?.residentId);
+
+  function showPrevious() {
+    setStoryIndex((current) => Math.max(0, current - 1));
+  }
+
+  function showNext() {
+    if (storyIndex >= messages.length - 1) {
+      requestClose();
+      return;
+    }
+    setStoryIndex((current) => current + 1);
+  }
 
   useEffect(() => {
+    if (!message) {
+      onClose();
+      return;
+    }
     const remainingTime = getDailyMessageExpiry(message) - Date.now();
     if (remainingTime <= 0) {
       onClose();
       return;
     }
 
-    const timer = window.setTimeout(onClose, remainingTime);
+    const timer = window.setTimeout(showNext, Math.min(10_000, remainingTime));
     return () => window.clearTimeout(timer);
-  }, [message, onClose]);
+    // showNext intentionally resets whenever the active story changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message?.id, onClose]);
+
+  if (!message) {
+    return null;
+  }
 
   return (
     <div className={`${backdropClassName} story-backdrop`}>
-      <article className={`daily-story ${message.photo ? "daily-story-photo" : ""}`} role="dialog" aria-modal="true">
+      <article
+        className={`daily-story ${message.photo ? "daily-story-photo" : ""} ${dragOffset > 0 ? "daily-story-dragging" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        onPointerDown={(event) => {
+          dragStartY.current = event.clientY;
+          draggedStoryRef.current = false;
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (dragStartY.current === null) return;
+          const nextOffset = Math.max(0, event.clientY - dragStartY.current);
+          draggedStoryRef.current = nextOffset > 8;
+          setDragOffset(nextOffset);
+        }}
+        onPointerUp={(event) => {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          dragStartY.current = null;
+          if (dragOffset > 90) {
+            requestClose();
+          } else {
+            setDragOffset(0);
+          }
+        }}
+        style={{ "--story-drag-y": `${dragOffset}px` } as CSSProperties}
+      >
         {message.photo ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img className="daily-story-image" src={message.photo} alt="" />
         ) : null}
         <div className="daily-story-shade" />
-        <div className="daily-story-progress" aria-hidden="true"><span /></div>
+        <div className="daily-story-progress-group" aria-hidden="true">
+          {messages.map((item, index) => (
+            <span className="daily-story-progress" key={item.id}>
+              <i className={index < storyIndex ? "complete" : index === storyIndex ? "active" : ""} />
+            </span>
+          ))}
+        </div>
         <button className="daily-story-close" type="button" onClick={requestClose} aria-label="Fechar story">
           <X size={22} />
         </button>
@@ -4948,6 +5011,23 @@ function DailyMessageStoryModal({
         <div className="daily-story-message">
           <p>{message.message}</p>
         </div>
+        <button
+          className="daily-story-tap-zone daily-story-tap-previous"
+          disabled={storyIndex === 0}
+          onClick={() => {
+            if (!draggedStoryRef.current) showPrevious();
+          }}
+          type="button"
+          aria-label="Story anterior"
+        />
+        <button
+          className="daily-story-tap-zone daily-story-tap-next"
+          onClick={() => {
+            if (!draggedStoryRef.current) showNext();
+          }}
+          type="button"
+          aria-label={storyIndex === messages.length - 1 ? "Fechar stories" : "Próximo story"}
+        />
       </article>
     </div>
   );
