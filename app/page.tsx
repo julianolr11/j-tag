@@ -37,6 +37,7 @@ import {
   Pill,
   Plus,
   Rainbow,
+  Send,
   ShoppingCart,
   Siren,
   Sun,
@@ -3903,6 +3904,14 @@ export default function HomePage() {
                   <Camera size={20} />
                 )}
               </label>
+              <button
+                className="daily-message-send"
+                type="submit"
+                disabled={!dailyMessageDraft.trim()}
+                aria-label="Enviar mensagem do dia"
+              >
+                <Send size={19} />
+              </button>
             </form>
           </article>
 

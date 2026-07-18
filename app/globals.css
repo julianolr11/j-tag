@@ -1220,6 +1220,10 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   text-align: center;
 }
 
+.stream-profile .avatar-frame {
+  max-width: 132px;
+}
+
 .avatar-frame {
   align-items: center;
   aspect-ratio: 1;
@@ -3068,7 +3072,7 @@ html:-webkit-full-screen .modal-backdrop {
   display: grid;
   gap: 8px;
   grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: minmax(0, 1fr) 44px 44px;
   margin-top: 2px;
 }
 
@@ -3120,6 +3124,31 @@ html:-webkit-full-screen .modal-backdrop {
 .daily-message-camera.has-photo {
   border-color: #9ff0bd;
   box-shadow: 0 0 0 2px rgba(53, 208, 127, 0.18);
+}
+
+.daily-message-send {
+  align-items: center;
+  background: linear-gradient(135deg, var(--red), var(--red-dark));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #fff;
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  transition: filter 160ms ease, opacity 160ms ease, transform 160ms ease;
+  width: 44px;
+}
+
+.daily-message-send:hover:not(:disabled),
+.daily-message-send:focus-visible:not(:disabled) {
+  filter: brightness(1.14);
+  outline: 0;
+  transform: translateY(-1px);
+}
+
+.daily-message-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.34;
 }
 
 .daily-message-thumbnail {
@@ -4761,8 +4790,17 @@ html:fullscreen body {
     max-width: 420px;
   }
 
-  .avatar-frame {
-    max-width: 145px;
+  .stream-profile {
+    gap: 10px;
+    padding: 12px 10px;
+  }
+
+  .stream-profile .avatar-frame {
+    max-width: 108px;
+  }
+
+  .stream-profile strong {
+    font-size: clamp(0.88rem, 3.8vw, 1.05rem);
   }
 
   .avatar-option-grid {
