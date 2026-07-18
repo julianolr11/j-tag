@@ -244,6 +244,7 @@ const RECENT_HOUSEHOLDS_KEY = "jtag-recent-households-v1";
 const LAST_AUTH_ID_KEY = "jtag-last-auth-id-v1";
 const REMEMBER_AUTH_KEY = "jtag-remember-auth-v1";
 const ACCOUNT_EMAIL_DOMAIN = "j-tag-indol.vercel.app";
+const MAX_INLINE_STORY_PHOTO_LENGTH = 900_000;
 const DISMISSED_NOTIFICATIONS_KEY = "jtag-dismissed-notifications-v1";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -268,6 +269,35 @@ function normalizeAccountId(value: string) {
 
 function accountIdToTechnicalEmail(value: string) {
   return `${normalizeAccountId(value)}@${ACCOUNT_EMAIL_DOMAIN}`;
+}
+
+function compressStoryPhoto(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Não foi possível ler a foto."));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Formato de imagem não suportado."));
+      image.onload = () => {
+        const maxDimension = 1280;
+        const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+        const width = Math.max(1, Math.round(image.naturalWidth * scale));
+        const height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Não foi possível preparar a foto."));
+          return;
+        }
+        context.drawImage(image, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      image.src = String(reader.result ?? "");
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 type CalendarViewMode = "calendar" | "list";
@@ -315,7 +345,7 @@ type ResidentRow = {
   household_id: string;
   name: string;
   role: string;
-  pin: string;
+  pin: string | number;
   color: string;
   photo_url: string | null;
   theme?: string | null;
@@ -677,7 +707,13 @@ function loadState(): AppState {
       emergencyContacts: parsed.emergencyContacts ?? [],
       locationShares: parsed.locationShares ?? [],
       activityEvents: parsed.activityEvents ?? [],
-      dailyMessages: parsed.dailyMessages ?? [],
+      dailyMessages: (parsed.dailyMessages ?? []).map((message) => ({
+        ...message,
+        photo:
+          message.photo && message.photo.length <= MAX_INLINE_STORY_PHOTO_LENGTH
+            ? message.photo
+            : undefined,
+      })),
       residents: (parsed.residents ?? defaultState.residents).map((resident, index) => ({
         ...resident,
         color: resident.color ?? ["#e50914", "#2f80ed", "#f2994a", "#27ae60"][index % 4],
@@ -690,7 +726,18 @@ function loadState(): AppState {
 }
 
 function saveState(state: AppState) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  try {
+    const cacheState = {
+      ...state,
+      dailyMessages: state.dailyMessages.map((message) => ({
+        ...message,
+        photo: message.photo?.startsWith("data:") ? undefined : message.photo,
+      })),
+    };
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(cacheState));
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY);
+  }
 }
 
 function loadRecentHouseholds() {
@@ -744,10 +791,13 @@ function mapResident(row: ResidentRow): Resident {
     id: row.id,
     name: row.name,
     role: row.role,
-    pin: row.pin,
+    pin: String(row.pin).trim().padStart(4, "0").slice(-4),
     color: row.color,
     theme: getProfileTheme(row.theme),
-    photo: row.photo_url ?? undefined,
+    photo:
+      row.photo_url && row.photo_url.length <= MAX_INLINE_STORY_PHOTO_LENGTH
+        ? row.photo_url
+        : undefined,
   };
 }
 
@@ -1953,6 +2003,7 @@ export default function HomePage() {
   const [showLocationShare, setShowLocationShare] = useState(false);
   const [selectedLocationShare, setSelectedLocationShare] = useState<LocationShare | null>(null);
   const [selectedDailyMessage, setSelectedDailyMessage] = useState<DailyMessage | null>(null);
+  const [eventStoryKind, setEventStoryKind] = useState<"reminder" | "birthday" | null>(null);
   const [pendingInviteCode, setPendingInviteCode] = useState("");
   const [authTransitionActive, setAuthTransitionActive] = useState(false);
   const [welcomeHouseholdName, setWelcomeHouseholdName] = useState("");
@@ -2590,19 +2641,26 @@ export default function HomePage() {
     setProfileModal(null);
   }
 
-  function handleDailyMessagePhoto(file?: File) {
+  async function handleDailyMessagePhoto(file?: File) {
     if (!file) {
       return;
     }
 
-    if (file.size > 3 * 1024 * 1024) {
-      showAssistantMessage("Escolha uma foto de até 3 MB.", false);
+    if (file.size > 12 * 1024 * 1024) {
+      showAssistantMessage("Escolha uma foto de até 12 MB.", false);
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => setDailyMessagePhoto(String(reader.result ?? ""));
-    reader.readAsDataURL(file);
+    try {
+      const compressedPhoto = await compressStoryPhoto(file);
+      if (compressedPhoto.length > 900_000) {
+        showAssistantMessage("A foto ainda ficou muito grande. Escolha outra imagem.", false);
+        return;
+      }
+      setDailyMessagePhoto(compressedPhoto);
+    } catch (error) {
+      showAssistantMessage(error instanceof Error ? error.message : "Não foi possível preparar a foto.", false);
+    }
   }
 
   function handleOpenNotification(notification: AppNotification) {
@@ -3087,7 +3145,8 @@ export default function HomePage() {
       return;
     }
 
-    if (nextPin === resident.pin) {
+    const storedPin = String(resident.pin).trim().padStart(4, "0").slice(-4);
+    if (nextPin === storedPin) {
       saveLastResident(resident.id);
       if (supabase && authUser && !resident.id.startsWith("local-")) {
         void supabase
@@ -3114,17 +3173,6 @@ export default function HomePage() {
 
     const nextPin = `${pin}${digit}`;
     setPin(nextPin);
-    validateResidentPin(nextPin, selectedResident);
-  }
-
-  function handleNativePinChange(value: string) {
-    if (!selectedResident) {
-      return;
-    }
-
-    const nextPin = value.replace(/\D/g, "").slice(0, 4);
-    setPin(nextPin);
-    setPinError("");
     validateResidentPin(nextPin, selectedResident);
   }
 
@@ -4157,11 +4205,13 @@ export default function HomePage() {
               className="dashboard-card dashboard-card-primary dashboard-card-with-action"
               role="button"
               tabIndex={0}
-              onClick={() => setProfileModal("reminderCalendar")}
+              onClick={() =>
+                activeReminders.length ? setEventStoryKind("reminder") : setProfileModal("reminderCalendar")
+              }
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  setProfileModal("reminderCalendar");
+                  activeReminders.length ? setEventStoryKind("reminder") : setProfileModal("reminderCalendar");
                 }
               }}
             >
@@ -4188,11 +4238,13 @@ export default function HomePage() {
               className="dashboard-card dashboard-card-with-action"
               role="button"
               tabIndex={0}
-              onClick={() => setProfileModal("birthdayCalendar")}
+              onClick={() =>
+                visibleBirthdays.length ? setEventStoryKind("birthday") : setProfileModal("birthdayCalendar")
+              }
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  setProfileModal("birthdayCalendar");
+                  visibleBirthdays.length ? setEventStoryKind("birthday") : setProfileModal("birthdayCalendar");
                 }
               }}
             >
@@ -4397,6 +4449,19 @@ export default function HomePage() {
             onClose={() => setSelectedDailyMessage(null)}
           />
         ) : null}
+        {eventStoryKind ? (
+          <EventStoryModal
+            birthdays={visibleBirthdays}
+            kind={eventStoryKind}
+            reminders={activeReminders}
+            onClose={() => setEventStoryKind(null)}
+            onOpenCalendar={() => {
+              const nextKind = eventStoryKind;
+              setEventStoryKind(null);
+              setProfileModal(nextKind === "reminder" ? "reminderCalendar" : "birthdayCalendar");
+            }}
+          />
+        ) : null}
         {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
       </main>
     );
@@ -4466,7 +4531,6 @@ export default function HomePage() {
           onClose={() => setSelectedResident(null)}
           onDigit={handlePinDigit}
           onErase={() => setPin((current) => current.slice(0, -1))}
-          onNativePinChange={handleNativePinChange}
         />
       ) : null}
 
@@ -5041,6 +5105,156 @@ function DailyMessageStoryModal({
           }}
           type="button"
           aria-label={storyIndex === messages.length - 1 ? "Fechar stories" : "Próximo story"}
+        />
+      </article>
+    </div>
+  );
+}
+
+function EventStoryModal({
+  birthdays,
+  kind,
+  reminders,
+  onClose,
+  onOpenCalendar,
+}: {
+  birthdays: Birthday[];
+  kind: "reminder" | "birthday";
+  reminders: Reminder[];
+  onClose: () => void;
+  onOpenCalendar: () => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const items = kind === "reminder" ? reminders : birthdays;
+  const [index, setIndex] = useState(0);
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStartY = useRef<number | null>(null);
+  const draggedRef = useRef(false);
+  const item = items[index];
+
+  function previous() {
+    setIndex((current) => Math.max(0, current - 1));
+  }
+
+  function next() {
+    if (index >= items.length - 1) {
+      requestClose();
+      return;
+    }
+    setIndex((current) => current + 1);
+  }
+
+  useEffect(() => {
+    if (!item) {
+      onClose();
+      return;
+    }
+    const timer = window.setTimeout(next, 10_000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item?.id, onClose]);
+
+  if (!item) return null;
+
+  const isReminder = kind === "reminder";
+  const reminder = isReminder ? (item as Reminder) : null;
+  const birthday = !isReminder ? (item as Birthday) : null;
+  const reminderOption = reminderIconMap[reminder?.icon ?? "general"] ?? reminderIconMap.general;
+  const StoryIcon = isReminder ? reminderOption.Icon : Cake;
+  const title = reminder?.text ?? birthday?.name ?? "";
+  const dateLabel = isReminder
+    ? formatDateLabel(reminder?.date ?? "")
+    : formatBirthdayValue(birthday?.date ?? "");
+
+  return (
+    <div className={`${backdropClassName} story-backdrop`}>
+      <article
+        className={`daily-story event-story event-story-${kind} ${dragOffset > 0 ? "daily-story-dragging" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        style={{ "--story-drag-y": `${dragOffset}px` } as CSSProperties}
+        onPointerDown={(event) => {
+          dragStartY.current = event.clientY;
+          draggedRef.current = false;
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (dragStartY.current === null) return;
+          const offset = Math.max(0, event.clientY - dragStartY.current);
+          draggedRef.current = offset > 8;
+          setDragOffset(offset);
+        }}
+        onPointerUp={(event) => {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          dragStartY.current = null;
+          if (dragOffset > 90) requestClose();
+          else setDragOffset(0);
+        }}
+        onPointerCancel={() => {
+          dragStartY.current = null;
+          draggedRef.current = false;
+          setDragOffset(0);
+        }}
+      >
+        <div className="event-story-atmosphere" aria-hidden="true" />
+        <div className="daily-story-progress-group" aria-hidden="true">
+          {items.map((storyItem, storyIndex) => (
+            <span className="daily-story-progress" key={storyItem.id}>
+              <i className={storyIndex < index ? "complete" : storyIndex === index ? "active" : ""} />
+            </span>
+          ))}
+        </div>
+        <button className="daily-story-close" type="button" onClick={requestClose} aria-label="Fechar story">
+          <X size={22} />
+        </button>
+
+        <div className="event-story-kicker">
+          <span>{isReminder ? "Lembrete" : "Aniversário"}</span>
+          <small>
+            {index + 1} de {items.length}
+          </small>
+        </div>
+
+        <div className="event-story-content">
+          <span className="event-story-icon">
+            <i aria-hidden="true" />
+            <StoryIcon size={68} strokeWidth={1.7} />
+          </span>
+          <p>{isReminder ? "Não esqueça" : "Uma data especial"}</p>
+          <h2>{title}</h2>
+          <strong>{dateLabel}</strong>
+          {reminder?.recurrence ? (
+            <small>{getReminderRecurrenceLabel(reminder.recurrence)}</small>
+          ) : null}
+        </div>
+
+        <button
+          className="event-story-calendar"
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenCalendar();
+          }}
+        >
+          <CalendarDays size={17} />
+          Ver calendário
+        </button>
+        <button
+          className="daily-story-tap-zone daily-story-tap-previous"
+          disabled={index === 0}
+          onClick={() => {
+            if (!draggedRef.current) previous();
+          }}
+          type="button"
+          aria-label="Story anterior"
+        />
+        <button
+          className="daily-story-tap-zone daily-story-tap-next"
+          onClick={() => {
+            if (!draggedRef.current) next();
+          }}
+          type="button"
+          aria-label={index === items.length - 1 ? "Fechar stories" : "Próximo story"}
         />
       </article>
     </div>
@@ -6014,7 +6228,6 @@ function PinModal({
   onClose,
   onDigit,
   onErase,
-  onNativePinChange,
 }: {
   resident: Resident;
   pin: string;
@@ -6022,34 +6235,8 @@ function PinModal({
   onClose: () => void;
   onDigit: (digit: string) => void;
   onErase: () => void;
-  onNativePinChange: (value: string) => void;
 }) {
-  const [useNativeKeyboard, setUseNativeKeyboard] = useState(false);
-  const nativeInputRef = useRef<HTMLInputElement>(null);
   const { backdropClassName, requestClose } = useModalClose(onClose);
-
-  useEffect(() => {
-    const mediaQueries = [
-      window.matchMedia("(pointer: coarse)"),
-      window.matchMedia("(max-width: 720px)"),
-    ];
-    const updateKeyboardMode = () => {
-      setUseNativeKeyboard(mediaQueries.some((query) => query.matches));
-    };
-
-    updateKeyboardMode();
-    mediaQueries.forEach((query) => query.addEventListener("change", updateKeyboardMode));
-
-    return () => {
-      mediaQueries.forEach((query) => query.removeEventListener("change", updateKeyboardMode));
-    };
-  }, []);
-
-  useEffect(() => {
-    if (useNativeKeyboard) {
-      nativeInputRef.current?.focus();
-    }
-  }, [useNativeKeyboard]);
 
   return (
     <div className={backdropClassName}>
@@ -6068,38 +6255,22 @@ function PinModal({
           ))}
         </div>
         {error ? <p className="modal-error">{error}</p> : null}
-        {useNativeKeyboard ? (
-          <input
-            ref={nativeInputRef}
-            aria-label="PIN de 4 dígitos"
-            autoComplete="current-password"
-            autoFocus
-            className="native-pin-input"
-            inputMode="numeric"
-            maxLength={4}
-            pattern="[0-9]*"
-            type="password"
-            value={pin}
-            onChange={(event) => onNativePinChange(event.target.value)}
-          />
-        ) : (
-          <div className="keypad">
-            {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
-              <button key={digit} type="button" onClick={() => onDigit(digit)}>
-                {digit}
-              </button>
-            ))}
-            <button type="button" onClick={onErase}>
-              apagar
+        <div className="keypad">
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((digit) => (
+            <button key={digit} type="button" onClick={() => onDigit(digit)}>
+              {digit}
             </button>
-            <button type="button" onClick={() => onDigit("0")}>
-              0
-            </button>
-            <button type="button" disabled>
-              <LockKeyhole size={18} />
-            </button>
-          </div>
-        )}
+          ))}
+          <button type="button" onClick={onErase}>
+            apagar
+          </button>
+          <button type="button" onClick={() => onDigit("0")}>
+            0
+          </button>
+          <button type="button" disabled>
+            <LockKeyhole size={18} />
+          </button>
+        </div>
       </section>
     </div>
   );
