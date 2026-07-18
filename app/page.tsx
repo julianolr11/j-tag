@@ -2841,11 +2841,14 @@ export default function HomePage() {
     }
 
     const recoveryEmail = authUser.email;
-    const { error: handleError } = await supabase.from("account_access").insert({
-      user_id: authUser.id,
-      handle,
-      recovery_email: recoveryEmail,
-    });
+    const { error: handleError } = await supabase.from("account_access").upsert(
+      {
+        user_id: authUser.id,
+        handle,
+        recovery_email: recoveryEmail,
+      },
+      { onConflict: "user_id" },
+    );
     if (handleError) {
       return handleError.code === "23505" ? "Esse ID já está em uso." : handleError.message;
     }
@@ -2854,7 +2857,6 @@ export default function HomePage() {
       email: accountIdToTechnicalEmail(handle),
     });
     if (error) {
-      await supabase.from("account_access").delete().eq("user_id", authUser.id);
       return error.message;
     }
 
