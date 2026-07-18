@@ -6,6 +6,7 @@ import {
   Bell,
   CalendarCheck,
   CalendarDays,
+  Camera,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -25,6 +26,7 @@ import {
   Lightbulb,
   LockKeyhole,
   MapPin,
+  MessageCircle,
   Maximize2,
   Mic,
   Minimize2,
@@ -98,12 +100,21 @@ type LocationShare = {
 type ActivityEvent = {
   id: string;
   residentId: string;
-  kind: "reminder" | "location" | "birthday" | "resident";
+  kind: "reminder" | "location" | "birthday" | "resident" | "message";
   title: string;
   detail?: string;
   createdAt: string;
   locationShareId?: string;
   reminderId?: string;
+  messageId?: string;
+};
+
+type DailyMessage = {
+  id: string;
+  residentId: string;
+  message: string;
+  photo?: string;
+  createdAt: string;
 };
 
 type Household = {
@@ -123,6 +134,7 @@ type AppState = {
   emergencyContacts: EmergencyContact[];
   locationShares: LocationShare[];
   activityEvents: ActivityEvent[];
+  dailyMessages: DailyMessage[];
 };
 
 type WeatherMood = "sunny" | "partly" | "cloudy" | "rain" | "storm" | "snow" | "fog" | "rainbow" | "night" | "night-cloud";
@@ -320,6 +332,15 @@ type ActivityEventRow = {
   created_at: string;
   location_share_id: string | null;
   reminder_id: string | null;
+  message_id?: string | null;
+};
+
+type DailyMessageRow = {
+  id: string;
+  resident_id: string;
+  message: string;
+  photo_url: string | null;
+  created_at: string;
 };
 
 const reminderIconOptions: Array<{
@@ -486,6 +507,7 @@ const defaultState: AppState = {
   emergencyContacts: [],
   locationShares: [],
   activityEvents: [],
+  dailyMessages: [],
 };
 
 function mergeSeedItems<T extends { id: string }>(storedItems: T[] | undefined, seedItems: T[]) {
@@ -607,6 +629,7 @@ function loadState(): AppState {
       emergencyContacts: parsed.emergencyContacts ?? [],
       locationShares: parsed.locationShares ?? [],
       activityEvents: parsed.activityEvents ?? [],
+      dailyMessages: parsed.dailyMessages ?? [],
       residents: (parsed.residents ?? defaultState.residents).map((resident, index) => ({
         ...resident,
         color: resident.color ?? ["#e50914", "#2f80ed", "#f2994a", "#27ae60"][index % 4],
@@ -736,6 +759,17 @@ function mapActivityEvent(row: ActivityEventRow): ActivityEvent {
     createdAt: row.created_at,
     locationShareId: row.location_share_id ?? undefined,
     reminderId: row.reminder_id ?? undefined,
+    messageId: row.message_id ?? undefined,
+  };
+}
+
+function mapDailyMessage(row: DailyMessageRow): DailyMessage {
+  return {
+    id: row.id,
+    residentId: row.resident_id,
+    message: row.message,
+    photo: row.photo_url ?? undefined,
+    createdAt: row.created_at,
   };
 }
 
@@ -744,13 +778,14 @@ async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppS
     return null;
   }
 
-  const [residentsResult, remindersResult, birthdaysResult, contactsResult, locationsResult, activityResult] = await Promise.all([
+  const [residentsResult, remindersResult, birthdaysResult, contactsResult, locationsResult, activityResult, messagesResult] = await Promise.all([
     supabase.from("residents").select("*").eq("household_id", household.id).order("created_at"),
     supabase.from("reminders").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
     supabase.from("birthdays").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
     supabase.from("emergency_contacts").select("*").eq("household_id", household.id).order("created_at"),
     supabase.from("location_shares").select("*").eq("household_id", household.id).order("created_at", { ascending: false }),
     supabase.from("activity_events").select("*").eq("household_id", household.id).order("created_at", { ascending: false }).limit(100),
+    supabase.from("daily_messages").select("*").eq("household_id", household.id).order("created_at", { ascending: false }).limit(30),
   ]);
 
   if (residentsResult.error || remindersResult.error || birthdaysResult.error || contactsResult.error) {
@@ -765,6 +800,7 @@ async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppS
     emergencyContacts: ((contactsResult.data ?? []) as EmergencyContactRow[]).map(mapEmergencyContact),
     locationShares: locationsResult.error ? [] : ((locationsResult.data ?? []) as LocationShareRow[]).map(mapLocationShare),
     activityEvents: activityResult.error ? [] : ((activityResult.data ?? []) as ActivityEventRow[]).map(mapActivityEvent),
+    dailyMessages: messagesResult.error ? [] : ((messagesResult.data ?? []) as DailyMessageRow[]).map(mapDailyMessage),
   };
 }
 
@@ -1120,15 +1156,33 @@ async function insertRemoteActivityEvent(householdId: string, event: ActivityEve
     detail: event.detail ?? null,
     location_share_id: event.locationShareId ?? null,
     reminder_id: event.reminderId ?? null,
+    message_id: event.messageId ?? null,
     created_at: event.createdAt,
   };
   let { error } = await supabase.from("activity_events").insert(payload);
 
-  if (error && error.message.toLowerCase().includes("reminder_id")) {
-    const { reminder_id: _reminderId, ...fallbackPayload } = payload;
+  if (error && (error.message.toLowerCase().includes("reminder_id") || error.message.toLowerCase().includes("message_id"))) {
+    const { reminder_id: _reminderId, message_id: _messageId, ...fallbackPayload } = payload;
     const fallbackResult = await supabase.from("activity_events").insert(fallbackPayload);
     error = fallbackResult.error;
   }
+
+  return !error;
+}
+
+async function insertRemoteDailyMessage(householdId: string, message: DailyMessage) {
+  if (!supabase) {
+    return false;
+  }
+
+  const { error } = await supabase.from("daily_messages").insert({
+    id: message.id,
+    household_id: householdId,
+    resident_id: message.residentId,
+    message: message.message,
+    photo_url: message.photo ?? null,
+    created_at: message.createdAt,
+  });
 
   return !error;
 }
@@ -1836,6 +1890,7 @@ export default function HomePage() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLocationShare, setShowLocationShare] = useState(false);
   const [selectedLocationShare, setSelectedLocationShare] = useState<LocationShare | null>(null);
+  const [selectedDailyMessage, setSelectedDailyMessage] = useState<DailyMessage | null>(null);
   const [pendingInviteCode, setPendingInviteCode] = useState("");
   const [authTransitionActive, setAuthTransitionActive] = useState(false);
   const [welcomeHouseholdName, setWelcomeHouseholdName] = useState("");
@@ -1847,7 +1902,7 @@ export default function HomePage() {
   const [isNightNow, setIsNightNow] = useState(() => isNightTime());
   const [dismissedNotifications, setDismissedNotifications] = useState<string[]>([]);
   const [profileModal, setProfileModal] = useState<
-    "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | "timeline" | null
+    "reminder" | "birthday" | "edit" | "reminderCalendar" | "birthdayCalendar" | "timeline" | "dailyMessage" | null
   >(null);
   const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
   const [newResidentPhoto, setNewResidentPhoto] = useState("");
@@ -2191,6 +2246,25 @@ export default function HomePage() {
           }));
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "daily_messages", filter: `household_id=eq.${householdId}` },
+        (payload) => {
+          const row = payload.new as DailyMessageRow;
+          const removedId = (payload.old as { id?: string }).id;
+
+          setAppState((current) => ({
+            ...current,
+            dailyMessages:
+              payload.eventType === "DELETE"
+                ? current.dailyMessages.filter((item) => item.id !== removedId)
+                : [
+                    mapDailyMessage(row),
+                    ...current.dailyMessages.filter((item) => item.id !== row.id),
+                  ].slice(0, 30),
+          }));
+        },
+      )
       .subscribe();
 
     return () => {
@@ -2246,7 +2320,6 @@ export default function HomePage() {
       (item) => item.residentId === activeResident.id || item.visibility !== "private",
     );
   }, [activeResident, appState.reminders]);
-  const reminderPreview = useMemo(() => getReminderPreview(activeReminders), [activeReminders]);
   const visibleBirthdays = useMemo(() => {
     if (!activeResident) {
       return [];
@@ -2257,6 +2330,7 @@ export default function HomePage() {
     );
   }, [activeResident, appState.birthdays]);
   const birthdayPreview = useMemo(() => getBirthdayPreview(visibleBirthdays), [visibleBirthdays]);
+  const latestDailyMessage = appState.dailyMessages[0];
   const dashboardReminders = useMemo(() => {
     const today = startOfToday();
     const dated = activeReminders
@@ -2352,6 +2426,7 @@ export default function HomePage() {
     detail?: string,
     locationShareId?: string,
     reminderId?: string,
+    messageId?: string,
   ) {
     if (!activeResident || !appState.household) {
       return;
@@ -2366,6 +2441,7 @@ export default function HomePage() {
       createdAt: new Date().toISOString(),
       locationShareId,
       reminderId,
+      messageId,
     };
 
     void insertRemoteActivityEvent(appState.household.id, event);
@@ -2373,6 +2449,35 @@ export default function HomePage() {
       ...current,
       activityEvents: [event, ...current.activityEvents].slice(0, 100),
     }));
+  }
+
+  async function handleAddDailyMessage(messageText: string, photo?: string) {
+    if (!activeResident || !appState.household || !messageText.trim()) {
+      return;
+    }
+
+    const message: DailyMessage = {
+      id: crypto.randomUUID(),
+      residentId: activeResident.id,
+      message: messageText.trim(),
+      photo,
+      createdAt: new Date().toISOString(),
+    };
+
+    await insertRemoteDailyMessage(appState.household.id, message);
+    setAppState((current) => ({
+      ...current,
+      dailyMessages: [message, ...current.dailyMessages.filter((item) => item.id !== message.id)].slice(0, 30),
+    }));
+    recordActivity(
+      "message",
+      "publicou uma mensagem do dia",
+      message.message,
+      undefined,
+      undefined,
+      message.id,
+    );
+    setProfileModal(null);
   }
 
   function handleOpenNotification(notification: AppNotification) {
@@ -3689,23 +3794,109 @@ export default function HomePage() {
             </div>
           </div>
 
+          <article
+            className={`daily-message-card ${latestDailyMessage ? "daily-message-card-active" : ""}`}
+            role={latestDailyMessage ? "button" : undefined}
+            tabIndex={latestDailyMessage ? 0 : undefined}
+            onClick={() => latestDailyMessage && setSelectedDailyMessage(latestDailyMessage)}
+            onKeyDown={(event) => {
+              if (latestDailyMessage && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                setSelectedDailyMessage(latestDailyMessage);
+              }
+            }}
+          >
+            <button
+              className="dashboard-card-add daily-message-add"
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                setProfileModal("dailyMessage");
+              }}
+              aria-label="Adicionar mensagem do dia"
+            >
+              <Plus size={18} />
+            </button>
+            <span className="daily-message-icon">
+              <MessageCircle size={20} />
+            </span>
+            <div className="daily-message-copy">
+              <small>Mensagem do dia</small>
+              <strong>{latestDailyMessage?.message ?? "Escreva algo para a família"}</strong>
+              <em>
+                {latestDailyMessage
+                  ? appState.residents.find((resident) => resident.id === latestDailyMessage.residentId)?.name ?? "Alguém da casa"
+                  : "Compartilhe um recado, carinho ou lembrete"}
+              </em>
+            </div>
+            {latestDailyMessage?.photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img className="daily-message-thumbnail" src={latestDailyMessage.photo} alt="" />
+            ) : null}
+          </article>
+
           <div className="dashboard-grid">
-            <button className="dashboard-card dashboard-card-primary" type="button" onClick={() => setProfileModal("reminderCalendar")}>
+            <article
+              className="dashboard-card dashboard-card-primary dashboard-card-with-action"
+              role="button"
+              tabIndex={0}
+              onClick={() => setProfileModal("reminderCalendar")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setProfileModal("reminderCalendar");
+                }
+              }}
+            >
+              <button
+                className="dashboard-card-add"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setEditingReminder(null);
+                  setProfileModal("reminder");
+                }}
+                aria-label="Adicionar lembrete"
+              >
+                <Plus size={18} />
+              </button>
               <span className="dashboard-card-icon">
                 <CalendarCheck size={20} />
               </span>
               <small>Lembretes</small>
               <strong>{dashboardReminders.next ? dashboardReminders.next.text : "Nada agendado"}</strong>
               <em>{dashboardReminders.next ? formatDistanceLabel(dashboardReminders.next.distance) : "Livre"}</em>
-            </button>
-            <button className="dashboard-card" type="button" onClick={() => setProfileModal("birthdayCalendar")}>
+            </article>
+            <article
+              className="dashboard-card dashboard-card-with-action"
+              role="button"
+              tabIndex={0}
+              onClick={() => setProfileModal("birthdayCalendar")}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setProfileModal("birthdayCalendar");
+                }
+              }}
+            >
+              <button
+                className="dashboard-card-add"
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setProfileModal("birthday");
+                }}
+                aria-label="Adicionar aniversário"
+              >
+                <Plus size={18} />
+              </button>
               <span className="dashboard-card-icon birthday-icon">
                 <Cake size={20} />
               </span>
               <small>Aniversários</small>
               <strong>{dashboardBirthdays.next ? dashboardBirthdays.next.name : "Sem próximos"}</strong>
               <em>{dashboardBirthdays.next ? formatDistanceLabel(dashboardBirthdays.next.nextDistance) : "Adicionar data"}</em>
-            </button>
+            </article>
             <button className="dashboard-card" type="button" onClick={() => setShowHouseholdInvite(true)}>
               <span className="dashboard-card-icon">
                 <Users size={20} />
@@ -3734,54 +3925,6 @@ export default function HomePage() {
               <strong>{appState.emergencyContacts.length + 3}</strong>
               <em>contatos prontos</em>
             </button>
-          </div>
-
-          <div className="inside-grid">
-            <InfoPanel
-              title="Lembretes"
-              onAdd={() => setProfileModal("reminder")}
-              onOpen={() => setProfileModal("reminderCalendar")}
-            >
-              {reminderPreview.length ? (
-                <div className="preview-fade-list">
-                  {reminderPreview.map((item) => (
-                  <div className={`inside-row ${item.distance === 0 ? "inside-row-today reminder-today" : ""}`} key={item.id}>
-                    <span className="inside-row-main">
-                      <ReminderIconBadge icon={item.icon} />
-                      <span className="row-label">{item.text}</span>
-                    </span>
-                    <small className="row-date-with-icon">
-                      {item.distance === 0 ? <CalendarCheck size={15} /> : null}
-                      {formatDateLabel(item.date)}
-                    </small>
-                  </div>
-                  ))}
-                </div>
-              ) : (
-                <p>Nenhum lembrete cadastrado.</p>
-              )}
-            </InfoPanel>
-            <InfoPanel
-              title="Aniversários"
-              onAdd={() => setProfileModal("birthday")}
-              onOpen={() => setProfileModal("birthdayCalendar")}
-            >
-              {birthdayPreview.length ? (
-                <div className="preview-fade-list">
-                  {birthdayPreview.map((item) => (
-                <div className={`inside-row ${item.distance === 0 ? "inside-row-today birthday-today" : ""}`} key={item.id}>
-                  <span className="inside-row-main">
-                    {item.distance === 0 ? <Cake size={17} /> : null}
-                    <span className="row-label">{item.name}</span>
-                  </span>
-                  <small>{item.date}</small>
-                </div>
-                  ))}
-                </div>
-              ) : (
-                <p>Nenhum aniversário cadastrado.</p>
-              )}
-            </InfoPanel>
           </div>
 
           <div className="profile-action-row">
@@ -3816,6 +3959,9 @@ export default function HomePage() {
         ) : null}
         {profileModal === "birthday" ? (
           <BirthdayModal onClose={() => setProfileModal(null)} onSubmit={handleAddBirthday} />
+        ) : null}
+        {profileModal === "dailyMessage" ? (
+          <DailyMessageModal onClose={() => setProfileModal(null)} onSubmit={handleAddDailyMessage} />
         ) : null}
         {profileModal === "edit" ? (
           <EditResidentModal
@@ -3865,6 +4011,7 @@ export default function HomePage() {
         {profileModal === "timeline" ? (
           <ActivityTimelineModal
             events={appState.activityEvents}
+            messages={appState.dailyMessages}
             residents={appState.residents}
             onClose={() => setProfileModal(null)}
             onOpenLocation={(shareId) => {
@@ -3877,6 +4024,13 @@ export default function HomePage() {
             onOpenReminder={() => {
               saveCalendarView("reminder", "list");
               setProfileModal("reminderCalendar");
+            }}
+            onOpenMessage={(messageId) => {
+              const message = appState.dailyMessages.find((item) => item.id === messageId);
+              if (message) {
+                setProfileModal(null);
+                setSelectedDailyMessage(message);
+              }
             }}
           />
         ) : null}
@@ -3912,6 +4066,13 @@ export default function HomePage() {
             residents={appState.residents}
             share={selectedLocationShare}
             onClose={() => setSelectedLocationShare(null)}
+          />
+        ) : null}
+        {selectedDailyMessage ? (
+          <DailyMessageStoryModal
+            message={selectedDailyMessage}
+            resident={appState.residents.find((item) => item.id === selectedDailyMessage.residentId)}
+            onClose={() => setSelectedDailyMessage(null)}
           />
         ) : null}
         {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
@@ -4171,16 +4332,20 @@ function formatActivityRelativeTime(value: string) {
 
 function ActivityTimelineModal({
   events,
+  messages,
   residents,
   onClose,
   onOpenLocation,
   onOpenReminder,
+  onOpenMessage,
 }: {
   events: ActivityEvent[];
+  messages: DailyMessage[];
   residents: Resident[];
   onClose: () => void;
   onOpenLocation: (shareId: string) => void;
   onOpenReminder: (reminderId: string) => void;
+  onOpenMessage: (messageId: string) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
   const iconMap: Record<ActivityEvent["kind"], LucideIcon> = {
@@ -4188,6 +4353,7 @@ function ActivityTimelineModal({
     location: MapPin,
     birthday: Cake,
     resident: UserPlus,
+    message: MessageCircle,
   };
 
   return (
@@ -4208,7 +4374,8 @@ function ActivityTimelineModal({
             events.map((event, index) => {
               const resident = residents.find((item) => item.id === event.residentId);
               const EventIcon = iconMap[event.kind];
-              const isInteractive = Boolean(event.locationShareId || event.reminderId);
+              const linkedMessage = event.messageId ? messages.find((item) => item.id === event.messageId) : undefined;
+              const isInteractive = Boolean(event.locationShareId || event.reminderId || linkedMessage);
               const content = (
                 <>
                   <span className={`activity-kind activity-kind-${event.kind}`}>
@@ -4221,6 +4388,10 @@ function ActivityTimelineModal({
                     {event.detail ? <small>{event.detail}</small> : null}
                     <time dateTime={event.createdAt}>{formatActivityRelativeTime(event.createdAt)}</time>
                   </span>
+                  {linkedMessage?.photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img className="activity-message-thumbnail" src={linkedMessage.photo} alt="" />
+                  ) : null}
                   {isInteractive ? <ChevronRight size={18} className="activity-chevron" /> : null}
                 </>
               );
@@ -4235,12 +4406,16 @@ function ActivityTimelineModal({
                           onOpenLocation(event.locationShareId);
                         } else if (event.reminderId) {
                           onOpenReminder(event.reminderId);
+                        } else if (event.messageId) {
+                          onOpenMessage(event.messageId);
                         }
                       }}
                       aria-label={
                         event.locationShareId
                           ? `Abrir localização compartilhada por ${resident?.name ?? "morador"}`
-                          : `Abrir lembrete: ${event.detail ?? event.title}`
+                          : event.messageId
+                            ? `Abrir mensagem do dia: ${event.detail ?? ""}`
+                            : `Abrir lembrete: ${event.detail ?? event.title}`
                       }
                     >
                       {content}
@@ -4260,6 +4435,124 @@ function ActivityTimelineModal({
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function DailyMessageModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (message: string, photo?: string) => void | Promise<void>;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [photo, setPhoto] = useState("");
+  const [photoError, setPhotoError] = useState("");
+
+  function handlePhoto(file?: File) {
+    if (!file) {
+      return;
+    }
+
+    if (file.size > 3 * 1024 * 1024) {
+      setPhotoError("Escolha uma foto de até 3 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPhoto(String(reader.result ?? ""));
+      setPhotoError("");
+    };
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <div className={backdropClassName}>
+      <form
+        className="dark-modal daily-message-modal"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          void onSubmit(String(form.get("message") ?? "").trim(), photo || undefined);
+        }}
+      >
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <span className="modal-icon daily-message-modal-icon">
+          <MessageCircle size={30} />
+        </span>
+        <p className="eyebrow">Mural da casa</p>
+        <h2>Mensagem do dia</h2>
+        <div className="field">
+          <label htmlFor="daily-message-text">Sua mensagem</label>
+          <textarea
+            id="daily-message-text"
+            name="message"
+            maxLength={240}
+            placeholder="Ex: Boa prova hoje! Estamos torcendo por você."
+            required
+          />
+        </div>
+        <label className={`daily-photo-picker ${photo ? "has-photo" : ""}`}>
+          <input accept="image/*" type="file" onChange={(event) => handlePhoto(event.target.files?.[0])} />
+          {photo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={photo} alt="Prévia da foto escolhida" />
+          ) : (
+            <>
+              <Camera size={24} />
+              <strong>Adicionar foto</strong>
+              <small>Opcional · até 3 MB</small>
+            </>
+          )}
+        </label>
+        {photoError ? <p className="modal-error">{photoError}</p> : null}
+        <button className="primary-action" type="submit">
+          <Check size={18} />
+          Publicar mensagem
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function DailyMessageStoryModal({
+  message,
+  resident,
+  onClose,
+}: {
+  message: DailyMessage;
+  resident?: Resident;
+  onClose: () => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+
+  return (
+    <div className={`${backdropClassName} story-backdrop`}>
+      <article className={`daily-story ${message.photo ? "daily-story-photo" : ""}`} role="dialog" aria-modal="true">
+        {message.photo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="daily-story-image" src={message.photo} alt="" />
+        ) : null}
+        <div className="daily-story-shade" />
+        <div className="daily-story-progress" aria-hidden="true"><span /></div>
+        <button className="daily-story-close" type="button" onClick={requestClose} aria-label="Fechar story">
+          <X size={22} />
+        </button>
+        <header className="daily-story-author">
+          {resident ? <Avatar resident={resident} /> : null}
+          <span>
+            <strong>{resident?.name ?? "Alguém da casa"}</strong>
+            <small>{formatActivityRelativeTime(message.createdAt)}</small>
+          </span>
+        </header>
+        <div className="daily-story-message">
+          <p>{message.message}</p>
+        </div>
+      </article>
     </div>
   );
 }
