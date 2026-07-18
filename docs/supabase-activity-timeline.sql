@@ -6,9 +6,16 @@ create table if not exists activity_events (
   kind text not null check (kind in ('reminder', 'location', 'birthday', 'resident')),
   title text not null,
   detail text,
+  reminder_id uuid references reminders(id) on delete set null,
   location_share_id uuid references location_shares(id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+-- Também funciona como migração para instalações que já criaram a timeline.
+alter table activity_events
+add column if not exists reminder_id uuid
+references reminders(id)
+on delete set null;
 
 create index if not exists activity_events_household_created_at_idx
 on activity_events (household_id, created_at desc);

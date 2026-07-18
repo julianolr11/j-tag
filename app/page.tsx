@@ -97,6 +97,7 @@ type ActivityEvent = {
   detail?: string;
   createdAt: string;
   locationShareId?: string;
+  reminderId?: string;
 };
 
 type Household = {
@@ -308,6 +309,7 @@ type ActivityEventRow = {
   detail: string | null;
   created_at: string;
   location_share_id: string | null;
+  reminder_id: string | null;
 };
 
 const reminderIconOptions: Array<{
@@ -719,6 +721,7 @@ function mapActivityEvent(row: ActivityEventRow): ActivityEvent {
     detail: row.detail ?? undefined,
     createdAt: row.created_at,
     locationShareId: row.location_share_id ?? undefined,
+    reminderId: row.reminder_id ?? undefined,
   };
 }
 
@@ -1034,7 +1037,7 @@ async function insertRemoteActivityEvent(householdId: string, event: ActivityEve
     return false;
   }
 
-  const { error } = await supabase.from("activity_events").insert({
+  const payload = {
     id: event.id,
     household_id: householdId,
     resident_id: event.residentId,
@@ -1042,8 +1045,16 @@ async function insertRemoteActivityEvent(householdId: string, event: ActivityEve
     title: event.title,
     detail: event.detail ?? null,
     location_share_id: event.locationShareId ?? null,
+    reminder_id: event.reminderId ?? null,
     created_at: event.createdAt,
-  });
+  };
+  let { error } = await supabase.from("activity_events").insert(payload);
+
+  if (error && error.message.toLowerCase().includes("reminder_id")) {
+    const { reminder_id: _reminderId, ...fallbackPayload } = payload;
+    const fallbackResult = await supabase.from("activity_events").insert(fallbackPayload);
+    error = fallbackResult.error;
+  }
 
   return !error;
 }
@@ -1758,6 +1769,7 @@ export default function HomePage() {
   const pendingVoiceHandlerRef = useRef<((transcript: string) => void) | null>(null);
   const activeRecognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const speechFallbackTimerRef = useRef<number | null>(null);
+  const fullscreenMessageTimerRef = useRef<number | null>(null);
   const welcomeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -2125,6 +2137,14 @@ export default function HomePage() {
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (fullscreenMessageTimerRef.current) {
+        window.clearTimeout(fullscreenMessageTimerRef.current);
+      }
+    };
+  }, []);
+
   const activeReminders = useMemo(() => {
     if (!activeResident) {
       return [];
@@ -2228,6 +2248,7 @@ export default function HomePage() {
     title: string,
     detail?: string,
     locationShareId?: string,
+    reminderId?: string,
   ) {
     if (!activeResident || !appState.household) {
       return;
@@ -2241,6 +2262,7 @@ export default function HomePage() {
       detail,
       createdAt: new Date().toISOString(),
       locationShareId,
+      reminderId,
     };
 
     void insertRemoteActivityEvent(appState.household.id, event);
@@ -2711,7 +2733,13 @@ export default function HomePage() {
       ...current,
       reminders: [reminder, ...current.reminders],
     }));
-    recordActivity("reminder", "adicionou um lembrete", reminder.text);
+    recordActivity(
+      "reminder",
+      "adicionou um lembrete",
+      `${reminder.text} · ${formatDateLabel(reminder.date)}`,
+      undefined,
+      reminder.id,
+    );
     setProfileModal(null);
   }
 
@@ -3148,7 +3176,13 @@ export default function HomePage() {
       ...current,
       reminders: [reminder, ...current.reminders],
     }));
-    recordActivity("reminder", "adicionou um lembrete por voz", reminder.text);
+    recordActivity(
+      "reminder",
+      "adicionou um lembrete por voz",
+      `${reminder.text} · ${formatDateLabel(reminder.date)}`,
+      undefined,
+      reminder.id,
+    );
     showAssistantMessage(`Pronto, adicionei o lembrete: ${text}.`);
   }
 
@@ -3304,9 +3338,18 @@ export default function HomePage() {
 
       await document.documentElement.requestFullscreen({ navigationUI: "hide" });
     } catch {
-      setVoiceMessage(
-        "Seu navegador não permite tela cheia aqui. No iPhone, use Compartilhar e Adicionar à Tela de Início.",
-      );
+      const fullscreenMessage =
+        "Seu navegador não permite tela cheia aqui. No iPhone, use Compartilhar e Adicionar à Tela de Início.";
+
+      if (fullscreenMessageTimerRef.current) {
+        window.clearTimeout(fullscreenMessageTimerRef.current);
+      }
+
+      setVoiceMessage(fullscreenMessage);
+      fullscreenMessageTimerRef.current = window.setTimeout(() => {
+        setVoiceMessage((current) => (current === fullscreenMessage ? "" : current));
+        fullscreenMessageTimerRef.current = null;
+      }, 10_000);
     }
   }
 
@@ -3668,6 +3711,10 @@ export default function HomePage() {
                 setSelectedLocationShare(share);
               }
             }}
+            onOpenReminder={() => {
+              saveCalendarView("reminder", "list");
+              setProfileModal("reminderCalendar");
+            }}
           />
         ) : null}
       {showHouseholdInvite ? (
@@ -3964,11 +4011,13 @@ function ActivityTimelineModal({
   residents,
   onClose,
   onOpenLocation,
+  onOpenReminder,
 }: {
   events: ActivityEvent[];
   residents: Resident[];
   onClose: () => void;
   onOpenLocation: (shareId: string) => void;
+  onOpenReminder: (reminderId: string) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
   const iconMap: Record<ActivityEvent["kind"], LucideIcon> = {
@@ -3996,6 +4045,7 @@ function ActivityTimelineModal({
             events.map((event, index) => {
               const resident = residents.find((item) => item.id === event.residentId);
               const EventIcon = iconMap[event.kind];
+              const isInteractive = Boolean(event.locationShareId || event.reminderId);
               const content = (
                 <>
                   <span className={`activity-kind activity-kind-${event.kind}`}>
@@ -4008,14 +4058,28 @@ function ActivityTimelineModal({
                     {event.detail ? <small>{event.detail}</small> : null}
                     <time dateTime={event.createdAt}>{formatActivityRelativeTime(event.createdAt)}</time>
                   </span>
-                  {event.locationShareId ? <ChevronRight size={18} className="activity-chevron" /> : null}
+                  {isInteractive ? <ChevronRight size={18} className="activity-chevron" /> : null}
                 </>
               );
 
               return (
                 <article className="activity-entry" key={event.id} style={{ "--activity-index": index } as CSSProperties}>
-                  {event.locationShareId ? (
-                    <button type="button" onClick={() => onOpenLocation(event.locationShareId!)}>
+                  {isInteractive ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (event.locationShareId) {
+                          onOpenLocation(event.locationShareId);
+                        } else if (event.reminderId) {
+                          onOpenReminder(event.reminderId);
+                        }
+                      }}
+                      aria-label={
+                        event.locationShareId
+                          ? `Abrir localização compartilhada por ${resident?.name ?? "morador"}`
+                          : `Abrir lembrete: ${event.detail ?? event.title}`
+                      }
+                    >
                       {content}
                     </button>
                   ) : (
