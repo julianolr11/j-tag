@@ -2113,7 +2113,7 @@ export default function HomePage() {
   const [showLocationShare, setShowLocationShare] = useState(false);
   const [selectedLocationShare, setSelectedLocationShare] = useState<LocationShare | null>(null);
   const [selectedDailyMessage, setSelectedDailyMessage] = useState<DailyMessage | null>(null);
-  const [eventStoryKind, setEventStoryKind] = useState<"reminder" | "birthday" | null>(null);
+  const [timelineAutoPlay, setTimelineAutoPlay] = useState(false);
   const [pendingInviteCode, setPendingInviteCode] = useState("");
   const [authTransitionActive, setAuthTransitionActive] = useState(false);
   const [welcomeHouseholdName, setWelcomeHouseholdName] = useState("");
@@ -4453,13 +4453,11 @@ export default function HomePage() {
               className="dashboard-card dashboard-card-primary dashboard-card-with-action"
               role="button"
               tabIndex={0}
-              onClick={() =>
-                activeReminders.length ? setEventStoryKind("reminder") : setProfileModal("reminderCalendar")
-              }
+              onClick={() => setProfileModal("reminderCalendar")}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  activeReminders.length ? setEventStoryKind("reminder") : setProfileModal("reminderCalendar");
+                  setProfileModal("reminderCalendar");
                 }
               }}
             >
@@ -4486,13 +4484,11 @@ export default function HomePage() {
               className="dashboard-card dashboard-card-with-action"
               role="button"
               tabIndex={0}
-              onClick={() =>
-                visibleBirthdays.length ? setEventStoryKind("birthday") : setProfileModal("birthdayCalendar")
-              }
+              onClick={() => setProfileModal("birthdayCalendar")}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  visibleBirthdays.length ? setEventStoryKind("birthday") : setProfileModal("birthdayCalendar");
+                  setProfileModal("birthdayCalendar");
                 }
               }}
             >
@@ -4522,7 +4518,35 @@ export default function HomePage() {
               <strong>{appState.residents.length}</strong>
               <em>{appState.residents.length === 1 ? "perfil na casa" : "perfis na casa"}</em>
             </button>
-            <button className="dashboard-card dashboard-card-timeline" type="button" onClick={() => setProfileModal("timeline")}>
+            <article
+              className="dashboard-card dashboard-card-timeline dashboard-card-with-action"
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                setTimelineAutoPlay(false);
+                setProfileModal("timeline");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setTimelineAutoPlay(false);
+                  setProfileModal("timeline");
+                }
+              }}
+            >
+              <button
+                className="dashboard-card-add dashboard-card-play"
+                type="button"
+                disabled={!appState.activityEvents.length}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setTimelineAutoPlay(true);
+                  setProfileModal("timeline");
+                }}
+                aria-label="Reproduzir Timeline como stories"
+              >
+                <Play size={17} fill="currentColor" />
+              </button>
               <span className="dashboard-card-icon timeline-icon">
                 <History size={20} />
               </span>
@@ -4533,7 +4557,7 @@ export default function HomePage() {
                   ? formatActivityRelativeTime(appState.activityEvents[0].createdAt)
                   : "Os acontecimentos aparecem aqui"}
               </em>
-            </button>
+            </article>
             <button className="dashboard-card" type="button" onClick={() => setShowEmergency(true)}>
               <span className="dashboard-card-icon emergency-icon-mini">
                 <HeartPulse size={20} />
@@ -4643,10 +4667,14 @@ export default function HomePage() {
         ) : null}
         {profileModal === "timeline" ? (
           <ActivityTimelineModal
+            autoPlay={timelineAutoPlay}
             events={appState.activityEvents}
             messages={activeDailyMessages}
             residents={appState.residents}
-            onClose={() => setProfileModal(null)}
+            onClose={() => {
+              setTimelineAutoPlay(false);
+              setProfileModal(null);
+            }}
             onOpenLocation={(shareId) => {
               const share = appState.locationShares.find((item) => item.id === shareId);
               if (share) {
@@ -4707,19 +4735,6 @@ export default function HomePage() {
             messages={activeDailyMessages}
             residents={appState.residents}
             onClose={() => setSelectedDailyMessage(null)}
-          />
-        ) : null}
-        {eventStoryKind ? (
-          <EventStoryModal
-            birthdays={visibleBirthdays}
-            kind={eventStoryKind}
-            reminders={activeReminders}
-            onClose={() => setEventStoryKind(null)}
-            onOpenCalendar={() => {
-              const nextKind = eventStoryKind;
-              setEventStoryKind(null);
-              setProfileModal(nextKind === "reminder" ? "reminderCalendar" : "birthdayCalendar");
-            }}
           />
         ) : null}
         {showReleaseNotes ? <ReleaseNotesModal onClose={() => setShowReleaseNotes(false)} /> : null}
@@ -5061,6 +5076,7 @@ function formatActivityRelativeTime(value: string) {
 }
 
 function ActivityTimelineModal({
+  autoPlay,
   events,
   messages,
   residents,
@@ -5069,6 +5085,7 @@ function ActivityTimelineModal({
   onOpenReminder,
   onOpenMessage,
 }: {
+  autoPlay: boolean;
   events: ActivityEvent[];
   messages: DailyMessage[];
   residents: Resident[];
@@ -5078,7 +5095,7 @@ function ActivityTimelineModal({
   onOpenMessage: (messageId: string) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(autoPlay);
   const iconMap: Record<ActivityEvent["kind"], LucideIcon> = {
     reminder: Bell,
     location: MapPin,
@@ -5539,156 +5556,6 @@ function DailyMessageStoryModal({
           }}
           type="button"
           aria-label={storyIndex === messages.length - 1 ? "Fechar stories" : "Próximo story"}
-        />
-      </article>
-    </div>
-  );
-}
-
-function EventStoryModal({
-  birthdays,
-  kind,
-  reminders,
-  onClose,
-  onOpenCalendar,
-}: {
-  birthdays: Birthday[];
-  kind: "reminder" | "birthday";
-  reminders: Reminder[];
-  onClose: () => void;
-  onOpenCalendar: () => void;
-}) {
-  const { backdropClassName, requestClose } = useModalClose(onClose);
-  const items = kind === "reminder" ? reminders : birthdays;
-  const [index, setIndex] = useState(0);
-  const [dragOffset, setDragOffset] = useState(0);
-  const dragStartY = useRef<number | null>(null);
-  const draggedRef = useRef(false);
-  const item = items[index];
-
-  function previous() {
-    setIndex((current) => Math.max(0, current - 1));
-  }
-
-  function next() {
-    if (index >= items.length - 1) {
-      requestClose();
-      return;
-    }
-    setIndex((current) => current + 1);
-  }
-
-  useEffect(() => {
-    if (!item) {
-      onClose();
-      return;
-    }
-    const timer = window.setTimeout(next, 10_000);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item?.id, onClose]);
-
-  if (!item) return null;
-
-  const isReminder = kind === "reminder";
-  const reminder = isReminder ? (item as Reminder) : null;
-  const birthday = !isReminder ? (item as Birthday) : null;
-  const reminderOption = reminderIconMap[reminder?.icon ?? "general"] ?? reminderIconMap.general;
-  const StoryIcon = isReminder ? reminderOption.Icon : Cake;
-  const title = reminder?.text ?? birthday?.name ?? "";
-  const dateLabel = isReminder
-    ? formatDateLabel(reminder?.date ?? "")
-    : formatBirthdayValue(birthday?.date ?? "");
-
-  return (
-    <div className={`${backdropClassName} story-backdrop`}>
-      <article
-        className={`daily-story event-story event-story-${kind} ${dragOffset > 0 ? "daily-story-dragging" : ""}`}
-        role="dialog"
-        aria-modal="true"
-        style={{ "--story-drag-y": `${dragOffset}px` } as CSSProperties}
-        onPointerDown={(event) => {
-          dragStartY.current = event.clientY;
-          draggedRef.current = false;
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          if (dragStartY.current === null) return;
-          const offset = Math.max(0, event.clientY - dragStartY.current);
-          draggedRef.current = offset > 8;
-          setDragOffset(offset);
-        }}
-        onPointerUp={(event) => {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-          dragStartY.current = null;
-          if (dragOffset > 90) requestClose();
-          else setDragOffset(0);
-        }}
-        onPointerCancel={() => {
-          dragStartY.current = null;
-          draggedRef.current = false;
-          setDragOffset(0);
-        }}
-      >
-        <div className="event-story-atmosphere" aria-hidden="true" />
-        <div className="daily-story-progress-group" aria-hidden="true">
-          {items.map((storyItem, storyIndex) => (
-            <span className="daily-story-progress" key={storyItem.id}>
-              <i className={storyIndex < index ? "complete" : storyIndex === index ? "active" : ""} />
-            </span>
-          ))}
-        </div>
-        <button className="daily-story-close" type="button" onClick={requestClose} aria-label="Fechar story">
-          <X size={22} />
-        </button>
-
-        <div className="event-story-kicker">
-          <span>{isReminder ? "Lembrete" : "Aniversário"}</span>
-          <small>
-            {index + 1} de {items.length}
-          </small>
-        </div>
-
-        <div className="event-story-content">
-          <span className="event-story-icon">
-            <i aria-hidden="true" />
-            <StoryIcon size={68} strokeWidth={1.7} />
-          </span>
-          <p>{isReminder ? "Não esqueça" : "Uma data especial"}</p>
-          <h2>{title}</h2>
-          <strong>{dateLabel}</strong>
-          {reminder?.recurrence ? (
-            <small>{getReminderRecurrenceLabel(reminder.recurrence)}</small>
-          ) : null}
-        </div>
-
-        <button
-          className="event-story-calendar"
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpenCalendar();
-          }}
-        >
-          <CalendarDays size={17} />
-          Ver calendário
-        </button>
-        <button
-          className="daily-story-tap-zone daily-story-tap-previous"
-          disabled={index === 0}
-          onClick={() => {
-            if (!draggedRef.current) previous();
-          }}
-          type="button"
-          aria-label="Story anterior"
-        />
-        <button
-          className="daily-story-tap-zone daily-story-tap-next"
-          onClick={() => {
-            if (!draggedRef.current) next();
-          }}
-          type="button"
-          aria-label={index === items.length - 1 ? "Fechar stories" : "Próximo story"}
         />
       </article>
     </div>
@@ -6674,10 +6541,65 @@ function PinModal({
   onChange: (pin: string) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
+  const initialViewportHeightRef = useRef(0);
+  const [pinViewport, setPinViewport] = useState<{
+    height: number;
+    offsetTop: number;
+    keyboardOpen: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) {
+      return;
+    }
+
+    initialViewportHeightRef.current = viewport.height;
+    const updateViewport = () => {
+      const keyboardOpen = initialViewportHeightRef.current - viewport.height > 120;
+      if (!keyboardOpen && viewport.height > initialViewportHeightRef.current) {
+        initialViewportHeightRef.current = viewport.height;
+      }
+      setPinViewport({
+        height: viewport.height,
+        offsetTop: viewport.offsetTop,
+        keyboardOpen,
+      });
+    };
+
+    updateViewport();
+    viewport.addEventListener("resize", updateViewport);
+    viewport.addEventListener("scroll", updateViewport);
+    return () => {
+      viewport.removeEventListener("resize", updateViewport);
+      viewport.removeEventListener("scroll", updateViewport);
+    };
+  }, []);
 
   return (
-    <div className={backdropClassName}>
-      <section className="dark-modal" role="dialog" aria-modal="true" aria-label="Entrar com PIN">
+    <div
+      className={`${backdropClassName} pin-modal-backdrop ${pinViewport?.keyboardOpen ? "pin-keyboard-open" : ""}`}
+      style={
+        pinViewport
+          ? {
+              bottom: "auto",
+              height: `${pinViewport.height}px`,
+              top: `${pinViewport.offsetTop}px`,
+            }
+          : undefined
+      }
+    >
+      <section
+        className="dark-modal pin-modal-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Entrar com PIN"
+        style={
+          pinViewport?.keyboardOpen
+            ? { maxHeight: `${Math.max(220, pinViewport.height - 20)}px` }
+            : undefined
+        }
+      >
         <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
           <X size={20} />
         </button>
