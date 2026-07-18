@@ -245,6 +245,8 @@ const LAST_AUTH_ID_KEY = "jtag-last-auth-id-v1";
 const REMEMBER_AUTH_KEY = "jtag-remember-auth-v1";
 const ACCOUNT_EMAIL_DOMAIN = "j-tag-indol.vercel.app";
 const MAX_INLINE_STORY_PHOTO_LENGTH = 900_000;
+const STORY_MEDIA_BUCKET = "story-media";
+const MAX_STORY_UPLOAD_BYTES = 1_400_000;
 const DISMISSED_NOTIFICATIONS_KEY = "jtag-dismissed-notifications-v1";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -271,33 +273,73 @@ function accountIdToTechnicalEmail(value: string) {
   return `${normalizeAccountId(value)}@${ACCOUNT_EMAIL_DOMAIN}`;
 }
 
-function compressStoryPhoto(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Não foi possível ler a foto."));
-    reader.onload = () => {
-      const image = new Image();
+type PreparedStoryPhoto = {
+  blob: Blob;
+  extension: "webp" | "jpg";
+  previewUrl: string;
+};
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number) {
+  return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+async function compressStoryPhoto(file: File): Promise<PreparedStoryPhoto> {
+  const sourceUrl = URL.createObjectURL(file);
+  const image = new Image();
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
       image.onerror = () => reject(new Error("Formato de imagem não suportado."));
-      image.onload = () => {
-        const maxDimension = 1280;
-        const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
-        const width = Math.max(1, Math.round(image.naturalWidth * scale));
-        const height = Math.max(1, Math.round(image.naturalHeight * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext("2d");
-        if (!context) {
-          reject(new Error("Não foi possível preparar a foto."));
-          return;
-        }
-        context.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.72));
-      };
-      image.src = String(reader.result ?? "");
+      image.src = sourceUrl;
+    });
+
+    let maxDimension = 1920;
+    let quality = 0.86;
+    let output: Blob | null = null;
+    let outputType = "image/webp";
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("Não foi possível preparar a foto.");
+      }
+
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      output = await canvasToBlob(canvas, outputType, quality);
+
+      if (!output) {
+        outputType = "image/jpeg";
+        output = await canvasToBlob(canvas, outputType, quality);
+      }
+      if (output && output.size <= MAX_STORY_UPLOAD_BYTES) {
+        break;
+      }
+
+      quality = Math.max(0.58, quality - 0.07);
+      if (attempt >= 3) {
+        maxDimension = Math.max(1080, Math.round(maxDimension * 0.85));
+      }
+    }
+
+    if (!output || output.size > MAX_STORY_UPLOAD_BYTES) {
+      throw new Error("Não foi possível reduzir a foto para publicação.");
+    }
+
+    return {
+      blob: output,
+      extension: outputType === "image/webp" ? "webp" : "jpg",
+      previewUrl: URL.createObjectURL(output),
     };
-    reader.readAsDataURL(file);
-  });
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
 }
 
 type CalendarViewMode = "calendar" | "list";
@@ -896,7 +938,7 @@ async function loadRemoteStateByHousehold(household: HouseholdRow): Promise<AppS
       .eq("household_id", household.id)
       .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false })
-      .limit(30),
+      .limit(50),
   ]);
 
   if (residentsResult.error || remindersResult.error || birthdaysResult.error || contactsResult.error) {
@@ -1297,6 +1339,28 @@ async function insertRemoteDailyMessage(householdId: string, message: DailyMessa
   });
 
   return !error;
+}
+
+async function uploadStoryPhoto(householdId: string, messageId: string, photo: PreparedStoryPhoto) {
+  if (!supabase) {
+    return null;
+  }
+
+  const path = `${householdId}/${messageId}.${photo.extension}`;
+  const { error } = await supabase.storage.from(STORY_MEDIA_BUCKET).upload(path, photo.blob, {
+    cacheControl: "31536000",
+    contentType: photo.blob.type,
+    upsert: false,
+  });
+
+  if (error) {
+    return null;
+  }
+
+  return {
+    path,
+    url: supabase.storage.from(STORY_MEDIA_BUCKET).getPublicUrl(path).data.publicUrl,
+  };
 }
 
 async function deleteRemoteReminder(reminderId: string) {
@@ -2031,6 +2095,8 @@ export default function HomePage() {
   const [isVoiceMessageClosing, setIsVoiceMessageClosing] = useState(false);
   const [dailyMessageDraft, setDailyMessageDraft] = useState("");
   const [dailyMessagePhoto, setDailyMessagePhoto] = useState("");
+  const [preparedDailyMessagePhoto, setPreparedDailyMessagePhoto] = useState<PreparedStoryPhoto | null>(null);
+  const [isPublishingDailyMessage, setIsPublishingDailyMessage] = useState(false);
   const pendingVoiceHandlerRef = useRef<((transcript: string) => void) | null>(null);
   const activeRecognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const speechFallbackTimerRef = useRef<number | null>(null);
@@ -2414,10 +2480,10 @@ export default function HomePage() {
             dailyMessages:
               payload.eventType === "DELETE"
                 ? current.dailyMessages.filter((item) => item.id !== removedId)
-                : [
+                  : [
                     mapDailyMessage(row),
                     ...current.dailyMessages.filter((item) => item.id !== row.id),
-                  ].slice(0, 30),
+                  ].slice(0, 50),
           }));
         },
       )
@@ -2611,24 +2677,46 @@ export default function HomePage() {
     }));
   }
 
-  async function handleAddDailyMessage(messageText: string, photo?: string) {
+  async function handleAddDailyMessage(messageText: string, preparedPhoto?: PreparedStoryPhoto | null) {
     if (!activeResident || !appState.household || !messageText.trim()) {
-      return;
+      return false;
+    }
+
+    setIsPublishingDailyMessage(true);
+    const messageId = crypto.randomUUID();
+    let uploadedPhoto: { path: string; url: string } | null = null;
+
+    if (preparedPhoto) {
+      uploadedPhoto = await uploadStoryPhoto(appState.household.id, messageId, preparedPhoto);
+      if (!uploadedPhoto) {
+        setIsPublishingDailyMessage(false);
+        showAssistantMessage("Não foi possível enviar a foto. Confira o bucket story-media no Supabase.", false);
+        return false;
+      }
     }
 
     const message: DailyMessage = {
-      id: crypto.randomUUID(),
+      id: messageId,
       residentId: activeResident.id,
       message: messageText.trim(),
-      photo,
+      photo: uploadedPhoto?.url,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     };
 
-    await insertRemoteDailyMessage(appState.household.id, message);
+    const inserted = await insertRemoteDailyMessage(appState.household.id, message);
+    if (!inserted) {
+      if (uploadedPhoto && supabase) {
+        await supabase.storage.from(STORY_MEDIA_BUCKET).remove([uploadedPhoto.path]);
+      }
+      setIsPublishingDailyMessage(false);
+      showAssistantMessage("Não foi possível publicar a mensagem.", false);
+      return false;
+    }
+
     setAppState((current) => ({
       ...current,
-      dailyMessages: [message, ...current.dailyMessages.filter((item) => item.id !== message.id)].slice(0, 30),
+      dailyMessages: [message, ...current.dailyMessages.filter((item) => item.id !== message.id)].slice(0, 50),
     }));
     recordActivity(
       "message",
@@ -2639,6 +2727,8 @@ export default function HomePage() {
       message.id,
     );
     setProfileModal(null);
+    setIsPublishingDailyMessage(false);
+    return true;
   }
 
   async function handleDailyMessagePhoto(file?: File) {
@@ -2646,18 +2736,18 @@ export default function HomePage() {
       return;
     }
 
-    if (file.size > 12 * 1024 * 1024) {
-      showAssistantMessage("Escolha uma foto de até 12 MB.", false);
+    if (file.size > 30 * 1024 * 1024) {
+      showAssistantMessage("Escolha uma foto de até 30 MB.", false);
       return;
     }
 
     try {
       const compressedPhoto = await compressStoryPhoto(file);
-      if (compressedPhoto.length > 900_000) {
-        showAssistantMessage("A foto ainda ficou muito grande. Escolha outra imagem.", false);
-        return;
+      if (preparedDailyMessagePhoto) {
+        URL.revokeObjectURL(preparedDailyMessagePhoto.previewUrl);
       }
-      setDailyMessagePhoto(compressedPhoto);
+      setPreparedDailyMessagePhoto(compressedPhoto);
+      setDailyMessagePhoto(compressedPhoto.previewUrl);
     } catch (error) {
       showAssistantMessage(error instanceof Error ? error.message : "Não foi possível preparar a foto.", false);
     }
@@ -4154,19 +4244,25 @@ export default function HomePage() {
             </div>
             {latestDailyMessage?.photo ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img className="daily-message-thumbnail" src={latestDailyMessage.photo} alt="" />
+              <img className="daily-message-thumbnail" src={latestDailyMessage.photo} alt="" loading="lazy" decoding="async" />
             ) : null}
             <form
               className="daily-message-composer"
               onClick={(event) => event.stopPropagation()}
-              onSubmit={(event) => {
+              onSubmit={async (event) => {
                 event.preventDefault();
-                if (!dailyMessageDraft.trim()) {
+                if (!dailyMessageDraft.trim() || isPublishingDailyMessage) {
                   return;
                 }
-                void handleAddDailyMessage(dailyMessageDraft, dailyMessagePhoto || undefined);
-                setDailyMessageDraft("");
-                setDailyMessagePhoto("");
+                const published = await handleAddDailyMessage(dailyMessageDraft, preparedDailyMessagePhoto);
+                if (published) {
+                  setDailyMessageDraft("");
+                  if (preparedDailyMessagePhoto) {
+                    URL.revokeObjectURL(preparedDailyMessagePhoto.previewUrl);
+                  }
+                  setPreparedDailyMessagePhoto(null);
+                  setDailyMessagePhoto("");
+                }
               }}
             >
               <input
@@ -4192,7 +4288,7 @@ export default function HomePage() {
               <button
                 className="daily-message-send"
                 type="submit"
-                disabled={!dailyMessageDraft.trim()}
+                disabled={!dailyMessageDraft.trim() || isPublishingDailyMessage}
                 aria-label="Enviar mensagem do dia"
               >
                 <Send size={19} />
