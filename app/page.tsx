@@ -2856,28 +2856,28 @@ export default function HomePage() {
       return handleError.code === "23505" ? "Esse ID já está em uso." : handleError.message;
     }
 
-    const updateResult = await Promise.race([
-      supabase.auth.updateUser({
-        email: accountIdToTechnicalEmail(handle),
-      }),
-      new Promise<{ data: { user: null }; error: Error }>((resolve) => {
-        window.setTimeout(
-          () =>
-            resolve({
-              data: { user: null },
-              error: new Error("A atualização demorou demais. Recarregue a página e tente novamente."),
-            }),
-          12_000,
-        );
-      }),
-    ]);
-    const { data, error } = updateResult;
-    if (error) {
-      return error.message;
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+      return "Sua sessão expirou. Entre novamente pelo acesso antigo.";
     }
 
-    if (data.user) {
-      setAuthUser(data.user);
+    const response = await fetch("/api/account/migrate", {
+      body: JSON.stringify({ technicalEmail: accountIdToTechnicalEmail(handle) }),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+    const result = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      return result.error ?? "Não foi possível atualizar o acesso.";
+    }
+
+    const { data: refreshedUser } = await supabase.auth.refreshSession();
+    if (refreshedUser.user) {
+      setAuthUser(refreshedUser.user);
     }
     return null;
   }
