@@ -42,7 +42,8 @@ body {
   background-color: #050505;
   background-size: cover;
   color: var(--text);
-  font-family: "Arial Black", Impact, "Trebuchet MS", sans-serif;
+  font-family: var(--font-poppins), sans-serif;
+  font-weight: 400;
   margin: 0;
 }
 
@@ -456,7 +457,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 
 .household-hero p:not(.eyebrow) {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   line-height: 1.45;
   margin: 0;
 }
@@ -592,7 +593,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 
 .recent-household-card small {
   color: rgba(255, 255, 255, 0.58);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
 }
 
 .setup-choice strong {
@@ -602,7 +603,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 .setup-choice span,
 .setup-invite-preview p {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   line-height: 1.35;
 }
 
@@ -687,7 +688,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 
 .avatar-picker-copy strong {
   color: #fff;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.96rem;
 }
 
@@ -801,7 +802,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 
 .theme-choice strong {
   color: #fff;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.95rem;
 }
 
@@ -868,7 +869,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   border-radius: 8px;
   color: #fff;
   display: inline-flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   gap: 8px;
   min-height: 46px;
   min-width: 0;
@@ -896,8 +897,8 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   color: #fff;
   cursor: pointer;
   display: inline-flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
-  font-weight: 900;
+  font-family: var(--font-poppins), sans-serif;
+  font-weight: 700;
   min-height: 46px;
   padding: 0 14px;
 }
@@ -1046,7 +1047,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   border-radius: 8px;
   color: rgba(255, 255, 255, 0.8);
   display: grid;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   gap: 8px;
   grid-template-columns: auto minmax(0, 1fr);
   min-height: 46px;
@@ -1086,7 +1087,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 .member-management-title span,
 .member-row small {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.82rem;
 }
 
@@ -1155,7 +1156,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 
 .eyebrow {
   color: rgba(255, 255, 255, 0.72);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0;
@@ -1212,7 +1213,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
 }
 
 .stream-profile strong {
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: clamp(1rem, 3vw, 1.28rem);
   overflow-wrap: anywhere;
   text-align: center;
@@ -1268,9 +1269,9 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 18px 50px rgba(229, 9, 20, 0.24);
   color: #fff;
   display: inline-flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 1rem;
-  font-weight: 900;
+  font-weight: 700;
   gap: 10px;
   justify-content: center;
   min-height: 56px;
@@ -1301,7 +1302,7 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   border-radius: 8px;
   color: rgba(255, 255, 255, 0.76);
   display: inline-flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-weight: 800;
   justify-content: center;
   min-height: 52px;
@@ -1408,7 +1409,7 @@ html:-webkit-full-screen .modal-backdrop {
 
 .modal-error {
   color: #ff9ea4;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   margin: 0;
 }
 
@@ -1461,7 +1462,7 @@ html:-webkit-full-screen .modal-backdrop {
 .field label,
 .field-label {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.82rem;
 }
 
@@ -1865,7 +1866,7 @@ html:-webkit-full-screen .modal-backdrop {
 .activity-content small,
 .activity-content time {
   display: block;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
 }
 
 .activity-content small {
@@ -1942,9 +1943,9 @@ html:-webkit-full-screen .modal-backdrop {
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
   color: rgba(255, 255, 255, 0.76);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.78rem;
-  font-weight: 900;
+  font-weight: 700;
   min-height: 34px;
   padding: 0 12px;
   white-space: nowrap;
@@ -2000,7 +2001,7 @@ html:-webkit-full-screen .modal-backdrop {
 .notification-content small,
 .notification-empty strong,
 .notification-empty span {
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
 }
 
 .notification-content strong {
@@ -2091,7 +2092,7 @@ html:-webkit-full-screen .modal-backdrop {
 
 .location-modal-copy {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   line-height: 1.45;
   margin: 0;
   text-align: center;
@@ -2130,8 +2131,8 @@ html:-webkit-full-screen .modal-backdrop {
 .location-address-card,
 .walking-person {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
-  font-weight: 900;
+  font-family: var(--font-poppins), sans-serif;
+  font-weight: 700;
 }
 
 .location-address-card {
@@ -2324,7 +2325,7 @@ html:-webkit-full-screen .modal-backdrop {
 
 .emergency-contact-row span {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.9rem;
 }
 
@@ -2401,9 +2402,9 @@ html:-webkit-full-screen .modal-backdrop {
   border-radius: 999px;
   color: #fff;
   display: inline-flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.68rem;
-  font-weight: 900;
+  font-weight: 700;
   height: 20px;
   justify-content: center;
   min-width: 20px;
@@ -2422,7 +2423,7 @@ html:-webkit-full-screen .modal-backdrop {
   border-radius: 8px;
   color: rgba(255, 255, 255, 0.76);
   display: inline-flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.82rem;
   gap: 10px;
   line-height: 1.35;
@@ -2530,7 +2531,7 @@ html:-webkit-full-screen .modal-backdrop {
 .inside-hero span,
 .inside-panel p {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
 }
 
 .dashboard-today-card {
@@ -2561,13 +2562,13 @@ html:-webkit-full-screen .modal-backdrop {
 .dashboard-card small,
 .dashboard-card em,
 .dashboard-alert {
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
 }
 
 .dashboard-today-copy span {
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 900;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -2691,10 +2692,10 @@ html:-webkit-full-screen .modal-backdrop {
   align-items: center;
   color: var(--muted);
   display: inline-flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.78rem;
   font-style: normal;
-  font-weight: 900;
+  font-weight: 700;
   gap: 4px;
   justify-content: end;
   min-width: 0;
@@ -2774,7 +2775,7 @@ html:-webkit-full-screen .modal-backdrop {
 .dashboard-card small {
   color: var(--muted);
   font-size: 0.76rem;
-  font-weight: 900;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -2804,7 +2805,7 @@ html:-webkit-full-screen .modal-backdrop {
   cursor: pointer;
   display: inline-flex;
   gap: 9px;
-  font-weight: 900;
+  font-weight: 700;
   min-height: 44px;
   padding: 0 14px;
   transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
@@ -2938,7 +2939,7 @@ html:fullscreen body {
   border: 1px solid transparent;
   border-radius: 8px;
   display: flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   gap: 12px;
   justify-content: space-between;
   min-width: 0;
@@ -3174,7 +3175,7 @@ html:fullscreen body {
 
 .calendar-month-nav span {
   color: #fff;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.9rem;
   font-weight: 800;
   text-align: center;
@@ -3183,7 +3184,7 @@ html:fullscreen body {
 
 .calendar-mode-note {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.8rem;
   margin: 0;
   text-align: center;
@@ -3235,7 +3236,7 @@ html:fullscreen body {
 
 .calendar-weekdays span {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.76rem;
   text-align: center;
 }
@@ -3246,7 +3247,7 @@ html:fullscreen body {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   display: grid;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   grid-template-rows: 1fr 24px;
   min-width: 0;
   padding: 8px;
@@ -3278,7 +3279,7 @@ html:fullscreen body {
   box-shadow: 0 4px 12px rgba(229, 9, 20, 0.34);
   color: #fff;
   display: inline-flex;
-  font-weight: 900;
+  font-weight: 700;
   height: 25px;
   justify-content: center;
   margin: -3px 0 0 -3px;
@@ -3397,9 +3398,9 @@ html:fullscreen body {
 
 .calendar-timeline-overdue > span {
   color: #ffd2a4;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   font-size: 0.76rem;
-  font-weight: 900;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
@@ -3477,7 +3478,7 @@ html:fullscreen body {
 .calendar-timeline-date strong,
 .calendar-timeline-date span,
 .calendar-empty-day {
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
 }
 
 .calendar-timeline-date strong {
@@ -3490,7 +3491,7 @@ html:fullscreen body {
 .calendar-timeline-date span {
   color: var(--muted);
   font-size: 0.72rem;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .calendar-timeline-items {
@@ -3520,7 +3521,7 @@ html:fullscreen body {
   border-radius: 8px;
   color: #fff;
   display: flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
   gap: 12px;
   justify-content: space-between;
   min-width: 0;
@@ -3544,7 +3545,7 @@ html:fullscreen body {
 
 .calendar-agenda-overdue small {
   color: #ffd2a4;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .calendar-detail-backdrop {
@@ -3606,7 +3607,7 @@ html:fullscreen body {
 
 .calendar-detail-card small {
   color: var(--muted);
-  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-family: var(--font-poppins), sans-serif;
 }
 
 .calendar-detail-recurrence {
@@ -3616,7 +3617,7 @@ html:fullscreen body {
   color: #b9d9ff;
   display: block;
   font-size: 0.72rem;
-  font-weight: 900;
+  font-weight: 700;
   margin: 10px auto 0;
   padding: 5px 9px;
   width: fit-content;
@@ -3642,7 +3643,7 @@ html:fullscreen body {
 .complete-slider-label {
   color: rgba(255, 255, 255, 0.88);
   font-size: 0.78rem;
-  font-weight: 900;
+  font-weight: 700;
   padding-left: 58px;
   pointer-events: none;
 }
@@ -3704,8 +3705,8 @@ html:fullscreen body {
   border-radius: 8px;
   cursor: pointer;
   display: inline-flex;
-  font-family: "Trebuchet MS", Verdana, sans-serif;
-  font-weight: 900;
+  font-family: var(--font-poppins), sans-serif;
+  font-weight: 700;
   gap: 8px;
   justify-content: center;
   min-height: 42px;

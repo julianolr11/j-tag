@@ -379,10 +379,15 @@ function getScreenShellClass(theme?: string | null) {
 }
 
 const releaseNotes = {
-  version: "v0.6",
+  version: "v0.7",
   title: "Novidades do J-tag",
-  date: "17/07/2026",
+  date: "18/07/2026",
   items: [
+    "A nova timeline da casa mostra os últimos acontecimentos, quem realizou cada ação e quando.",
+    "Moradores, lembretes, aniversários, contatos, localizações e atividades agora sincronizam em tempo real entre aparelhos.",
+    "A edição do perfil agora abre ao tocar na foto, deixando o topo mais limpo.",
+    "O convite da casa ganhou um ícone de pessoa com sinal de mais.",
+    "Toda a interface agora usa Poppins com pesos otimizados para leitura no celular.",
     "Lembretes agora podem ser editados depois de criados.",
     "Lembretes recorrentes podem repetir diariamente, semanalmente, mensalmente ou anualmente.",
     "Uma nova barra de arraste permite concluir lembretes e avançar automaticamente os recorrentes.",
