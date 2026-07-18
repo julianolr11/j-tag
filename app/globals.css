@@ -2424,6 +2424,221 @@ html:-webkit-full-screen .modal-backdrop {
   margin: -4px 0 2px;
 }
 
+.family-network-modal {
+  gap: 14px;
+  max-width: 720px;
+  overflow: hidden;
+  padding: 28px 22px 22px;
+}
+
+.family-network-heading {
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  max-width: 520px;
+  padding-inline: 40px;
+}
+
+.family-network-heading span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.family-network-canvas {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(90, 163, 255, 0.13), transparent 27%),
+    radial-gradient(circle at 20% 14%, rgba(255, 190, 92, 0.09), transparent 23%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 12px;
+  height: min(54vh, 470px);
+  min-height: 390px;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.family-network-canvas::before {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.2) 0.7px, transparent 0.7px);
+  background-size: 18px 18px;
+  content: "";
+  inset: 0;
+  mask-image: radial-gradient(circle, #000, transparent 78%);
+  opacity: 0.28;
+  pointer-events: none;
+  position: absolute;
+}
+
+.family-network-links {
+  height: 100%;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  width: 100%;
+}
+
+.family-network-links path {
+  animation: familyLinkIn 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  fill: none;
+  filter: drop-shadow(0 0 5px rgba(123, 185, 255, 0.38));
+  stroke: rgba(159, 205, 255, 0.55);
+  stroke-dasharray: 2.2 1.4;
+  stroke-linecap: round;
+  stroke-width: 0.55;
+}
+
+.family-network-node {
+  align-items: center;
+  animation: familyNodeIn 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--family-index) * 80ms);
+  background: transparent;
+  border: 0;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  left: var(--family-x);
+  min-width: 118px;
+  padding: 0;
+  position: absolute;
+  top: var(--family-y);
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+.family-network-core {
+  align-items: center;
+  backdrop-filter: blur(18px);
+  background: linear-gradient(145deg, rgba(80, 158, 255, 0.31), rgba(255, 255, 255, 0.08));
+  border: 1px solid rgba(164, 207, 255, 0.42);
+  border-radius: 50%;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34), 0 0 36px rgba(68, 142, 255, 0.18);
+  display: inline-flex;
+  height: 72px;
+  justify-content: center;
+  position: relative;
+  transition: transform 180ms ease, border-color 180ms ease;
+  width: 72px;
+}
+
+.family-network-node.current .family-network-core {
+  background: linear-gradient(145deg, rgba(229, 9, 20, 0.52), rgba(255, 255, 255, 0.1));
+  border-color: rgba(255, 151, 157, 0.62);
+  height: 82px;
+  width: 82px;
+}
+
+.family-network-node:active .family-network-core {
+  transform: scale(0.94);
+}
+
+.family-network-node > strong {
+  font-size: 0.83rem;
+  line-height: 1.15;
+  margin-top: 12px;
+  max-width: 130px;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.family-network-node > small {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 0.65rem;
+  margin-top: 3px;
+}
+
+.family-network-orbit {
+  inset: -15px;
+  pointer-events: none;
+  position: absolute;
+}
+
+.family-network-avatar {
+  align-items: center;
+  border: 2px solid #15191f;
+  border-radius: 50%;
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.45);
+  display: flex;
+  font-size: 0.58rem;
+  font-weight: 800;
+  height: 29px;
+  justify-content: center;
+  overflow: hidden;
+  position: absolute;
+  width: 29px;
+}
+
+.family-network-avatar img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.family-network-avatar-1 {
+  left: 1px;
+  top: 8px;
+}
+
+.family-network-avatar-2 {
+  right: 1px;
+  top: 8px;
+}
+
+.family-network-avatar-3 {
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.family-network-extra {
+  align-items: center;
+  background: #fff;
+  border-radius: 999px;
+  bottom: -4px;
+  color: #111;
+  display: flex;
+  font-size: 0.52rem;
+  font-weight: 800;
+  height: 20px;
+  justify-content: center;
+  position: absolute;
+  right: -3px;
+  width: 20px;
+}
+
+.family-network-empty {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+}
+
+@keyframes familyNodeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -42%) scale(0.82);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes familyLinkIn {
+  from {
+    opacity: 0;
+    stroke-dashoffset: 20;
+  }
+  to {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
 .activity-timeline {
   max-height: min(56vh, 520px);
   overflow-y: auto;

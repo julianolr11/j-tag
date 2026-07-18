@@ -391,6 +391,10 @@ type RecentHousehold = {
   lastAccessedAt: string;
 };
 
+type FamilyNetworkItem = RecentHousehold & {
+  residents: Resident[];
+};
+
 type HouseholdMemberRow = {
   household_id: string;
   user_id: string;
@@ -2114,6 +2118,7 @@ export default function HomePage() {
   const [showNewResident, setShowNewResident] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
   const [showHouseholdInvite, setShowHouseholdInvite] = useState(false);
+  const [showFamilyNetwork, setShowFamilyNetwork] = useState(false);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showLocationShare, setShowLocationShare] = useState(false);
@@ -2125,6 +2130,7 @@ export default function HomePage() {
   const [welcomeHouseholdName, setWelcomeHouseholdName] = useState("");
   const [recentHouseholds, setRecentHouseholds] = useState<RecentHousehold[]>([]);
   const [accountHouseholds, setAccountHouseholds] = useState<RecentHousehold[]>([]);
+  const [networkResidents, setNetworkResidents] = useState<Record<string, Resident[]>>({});
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [passwordRecoveryActive, setPasswordRecoveryActive] = useState(false);
@@ -2696,6 +2702,56 @@ export default function HomePage() {
     );
   }, [activeReminders, activeResident?.id, appState.locationShares, appState.residents, birthdayPreview, dismissedNotifications]);
   const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
+  const familyNetworkItems = useMemo<FamilyNetworkItem[]>(() => {
+    const households = [...quickAccessHouseholds];
+    if (appState.household && !households.some((household) => household.id === appState.household?.id)) {
+      households.unshift({
+        id: appState.household.id,
+        name: appState.household.name,
+        code: appState.household.code,
+        lastAccessedAt: new Date().toISOString(),
+      });
+    }
+
+    return households.map((household) => ({
+      ...household,
+      residents:
+        household.id === appState.household?.id
+          ? appState.residents
+          : networkResidents[household.id] ?? [],
+    }));
+  }, [appState.household, appState.residents, networkResidents, quickAccessHouseholds]);
+
+  useEffect(() => {
+    if (!showFamilyNetwork || !supabase || !quickAccessHouseholds.length) {
+      return;
+    }
+
+    let active = true;
+    const householdIds = quickAccessHouseholds.map((household) => household.id);
+    void supabase
+      .from("residents")
+      .select("id, household_id, name, role, pin, color, photo_url, theme")
+      .in("household_id", householdIds)
+      .then(({ data, error }) => {
+        if (!active || error) {
+          return;
+        }
+
+        const grouped = ((data ?? []) as ResidentRow[]).reduce<Record<string, Resident[]>>(
+          (result, row) => {
+            result[row.household_id] = [...(result[row.household_id] ?? []), mapResident(row)];
+            return result;
+          },
+          {},
+        );
+        setNetworkResidents(grouped);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [quickAccessHouseholds, showFamilyNetwork]);
   const hasLocalHouseholdAccess = Boolean(appState.household);
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
@@ -4516,7 +4572,7 @@ export default function HomePage() {
               <strong>{dashboardBirthdays.next ? dashboardBirthdays.next.name : "Sem próximos"}</strong>
               <em>{dashboardBirthdays.next ? formatDistanceLabel(dashboardBirthdays.next.nextDistance) : "Adicionar data"}</em>
             </article>
-            <button className="dashboard-card" type="button" onClick={() => setShowHouseholdInvite(true)}>
+            <button className="dashboard-card" type="button" onClick={() => setShowFamilyNetwork(true)}>
               <span className="dashboard-card-icon">
                 <Users size={20} />
               </span>
@@ -4713,6 +4769,19 @@ export default function HomePage() {
           onShare={shareHouseholdInvite}
         />
       ) : null}
+        {showFamilyNetwork ? (
+          <FamilyNetworkModal
+            currentHouseholdId={appState.household.id}
+            families={familyNetworkItems}
+            onClose={() => setShowFamilyNetwork(false)}
+            onOpenFamily={(family) => {
+              setShowFamilyNetwork(false);
+              if (family.id !== appState.household?.id) {
+                void handleContinueHousehold(family);
+              }
+            }}
+          />
+        ) : null}
         {showNotifications ? (
           <NotificationsModal
             notifications={notifications}
@@ -5079,6 +5148,116 @@ function formatActivityRelativeTime(value: string) {
   if (days < 7) return `há ${days} dias`;
 
   return new Date(value).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+}
+
+function FamilyNetworkModal({
+  currentHouseholdId,
+  families,
+  onClose,
+  onOpenFamily,
+}: {
+  currentHouseholdId: string;
+  families: FamilyNetworkItem[];
+  onClose: () => void;
+  onOpenFamily: (family: FamilyNetworkItem) => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const orderedFamilies = [
+    ...families.filter((family) => family.id === currentHouseholdId),
+    ...families.filter((family) => family.id !== currentHouseholdId),
+  ];
+  const positions = orderedFamilies.map((family, index) => {
+    if (index === 0 || orderedFamilies.length === 1) {
+      return { family, x: 50, y: 50 };
+    }
+    const satelliteCount = orderedFamilies.length - 1;
+    const angle = -Math.PI / 2 + ((index - 1) * Math.PI * 2) / satelliteCount;
+    return {
+      family,
+      x: 50 + Math.cos(angle) * 29,
+      y: 50 + Math.sin(angle) * 32,
+    };
+  });
+  const center = positions[0];
+
+  return (
+    <div className={backdropClassName}>
+      <section className="dark-modal family-network-modal" role="dialog" aria-modal="true" aria-labelledby="family-network-title">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar rede de famílias">
+          <X size={20} />
+        </button>
+        <div className="family-network-heading">
+          <p className="eyebrow">Seus lares</p>
+          <h2 id="family-network-title">Rede de famílias</h2>
+          <span>
+            {orderedFamilies.length === 1
+              ? "Sua família está aqui. Novos lares aparecerão conectados."
+              : `${orderedFamilies.length} famílias ligadas à sua conta.`}
+          </span>
+        </div>
+        <div className={`family-network-canvas ${orderedFamilies.length === 1 ? "family-network-single" : ""}`}>
+          <svg className="family-network-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            {center
+              ? positions.slice(1).map((position) => {
+                  const curveX = (center.x + position.x) / 2 + (position.y - center.y) * 0.08;
+                  const curveY = (center.y + position.y) / 2 - (position.x - center.x) * 0.08;
+                  return (
+                    <path
+                      d={`M ${center.x} ${center.y} Q ${curveX} ${curveY} ${position.x} ${position.y}`}
+                      key={position.family.id}
+                    />
+                  );
+                })
+              : null}
+          </svg>
+          {positions.map(({ family, x, y }, index) => {
+            const previews = family.residents.slice(0, 3);
+            return (
+              <button
+                className={`family-network-node ${index === 0 ? "current" : ""}`}
+                key={family.id}
+                type="button"
+                onClick={() => onOpenFamily(family)}
+                style={{ "--family-x": `${x}%`, "--family-y": `${y}%`, "--family-index": index } as CSSProperties}
+                aria-label={`${family.name}, ${family.residents.length} perfis`}
+              >
+                <span className="family-network-core">
+                  <Users size={index === 0 ? 31 : 27} />
+                </span>
+                <span className="family-network-orbit" aria-hidden="true">
+                  {previews.map((resident, residentIndex) => (
+                    <span
+                      className={`family-network-avatar family-network-avatar-${residentIndex + 1}`}
+                      key={resident.id}
+                      style={{ backgroundColor: resident.color }}
+                    >
+                      {resident.photo ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={resident.photo} alt="" loading="lazy" decoding="async" />
+                      ) : (
+                        resident.name.slice(0, 1).toUpperCase()
+                      )}
+                    </span>
+                  ))}
+                  {family.residents.length > 3 ? (
+                    <small className="family-network-extra">+{family.residents.length - 3}</small>
+                  ) : null}
+                </span>
+                <strong>{family.name}</strong>
+                <small>{index === 0 ? "Família atual" : `${family.residents.length} perfis`}</small>
+              </button>
+            );
+          })}
+          {!positions.length ? (
+            <div className="family-network-empty">
+              <Users size={32} />
+              <strong>Nenhuma família encontrada</strong>
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function ActivityTimelineModal({
