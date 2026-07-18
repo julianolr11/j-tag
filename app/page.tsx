@@ -47,6 +47,7 @@ import {
   Users,
   Trash2,
   UserPlus,
+  UserRound,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -4572,13 +4573,21 @@ export default function HomePage() {
               <strong>{dashboardBirthdays.next ? dashboardBirthdays.next.name : "Sem próximos"}</strong>
               <em>{dashboardBirthdays.next ? formatDistanceLabel(dashboardBirthdays.next.nextDistance) : "Adicionar data"}</em>
             </article>
-            <button className="dashboard-card" type="button" onClick={() => setShowFamilyNetwork(true)}>
+            <button className="dashboard-card" type="button" onClick={() => setShowHouseholdInvite(true)}>
               <span className="dashboard-card-icon">
-                <Users size={20} />
+                <UserRound size={20} />
               </span>
               <small>Moradores</small>
               <strong>{appState.residents.length}</strong>
               <em>{appState.residents.length === 1 ? "perfil na casa" : "perfis na casa"}</em>
+            </button>
+            <button className="dashboard-card dashboard-card-families" type="button" onClick={() => setShowFamilyNetwork(true)}>
+              <span className="dashboard-card-icon family-network-card-icon">
+                <Users size={20} />
+              </span>
+              <small>Famílias</small>
+              <strong>{familyNetworkItems.length}</strong>
+              <em>{familyNetworkItems.length === 1 ? "lar na sua rede" : "lares conectados"}</em>
             </button>
             <article
               className="dashboard-card dashboard-card-timeline dashboard-card-with-action"
