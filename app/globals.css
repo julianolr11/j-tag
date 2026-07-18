@@ -953,6 +953,79 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   margin-bottom: 2px;
 }
 
+.auth-text-button {
+  align-self: center;
+  background: transparent;
+  border: 0;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  font-family: var(--font-poppins), sans-serif;
+  font-size: 0.88rem;
+  font-weight: 700;
+  padding: 4px 10px;
+  transition: color 180ms ease, opacity 180ms ease, transform 180ms ease;
+}
+
+.auth-text-button:hover {
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.auth-text-button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.auth-feedback {
+  border-radius: 8px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 2px 0 0;
+  padding: 10px 12px;
+}
+
+.auth-feedback-success {
+  background: rgba(65, 208, 140, 0.1);
+  border: 1px solid rgba(65, 208, 140, 0.22);
+  color: #a8f0cc;
+}
+
+.auth-feedback-error {
+  background: rgba(255, 92, 102, 0.1);
+  border: 1px solid rgba(255, 92, 102, 0.22);
+  color: #ffc0c4;
+}
+
+.password-recovery-screen {
+  animation: modalContentIn 360ms cubic-bezier(0.2, 0.9, 0.16, 1) both;
+}
+
+.password-recovery-icon {
+  background: linear-gradient(145deg, rgba(229, 9, 20, 0.2), rgba(255, 255, 255, 0.08));
+}
+
+.password-recovery-success {
+  align-items: center;
+  text-align: center;
+}
+
+.password-recovery-success > span {
+  align-items: center;
+  background: rgba(65, 208, 140, 0.12);
+  border: 1px solid rgba(65, 208, 140, 0.28);
+  border-radius: 50%;
+  color: #8ee8bb;
+  display: inline-flex;
+  height: 52px;
+  justify-content: center;
+  width: 52px;
+}
+
+.password-recovery-success p {
+  color: rgba(255, 255, 255, 0.7);
+  margin: -6px 0 4px;
+}
+
 .welcome-household-screen {
   align-items: center;
   display: grid;

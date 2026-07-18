@@ -1944,6 +1944,7 @@ export default function HomePage() {
   const [accountHouseholds, setAccountHouseholds] = useState<RecentHousehold[]>([]);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [passwordRecoveryActive, setPasswordRecoveryActive] = useState(false);
   const [todayWeather, setTodayWeather] = useState<TodayWeather>(() => getDefaultWeather());
   const [isNightNow, setIsNightNow] = useState(() => isNightTime());
   const [dailyMessageNow, setDailyMessageNow] = useState(() => Date.now());
@@ -2041,8 +2042,11 @@ export default function HomePage() {
     }
 
     hydrateRemoteState();
-    const { data: authSubscription } = supabase?.auth.onAuthStateChange((_event, session) => {
+    const { data: authSubscription } = supabase?.auth.onAuthStateChange((event, session) => {
       const nextUser = session?.user ?? null;
+      if (event === "PASSWORD_RECOVERY") {
+        setPasswordRecoveryActive(true);
+      }
       setAuthUser(nextUser);
       setAuthLoading(false);
       if (!nextUser) {
@@ -2761,6 +2765,30 @@ export default function HomePage() {
       setAuthTransitionActive(false);
       window.alert("Conta criada. Se o Supabase pedir confirmação, confirme o e-mail antes de entrar.");
     }
+  }
+
+  async function handlePasswordResetRequest(email: string) {
+    if (!supabase) {
+      return "Supabase não está configurado neste ambiente.";
+    }
+
+    const redirectTo = `${window.location.origin}${window.location.pathname}`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+    return error?.message ?? null;
+  }
+
+  async function handlePasswordUpdate(password: string) {
+    if (!supabase) {
+      return "Supabase não está configurado neste ambiente.";
+    }
+
+    const { error } = await supabase.auth.updateUser({ password });
+    return error?.message ?? null;
+  }
+
+  function finishPasswordRecovery() {
+    setPasswordRecoveryActive(false);
+    window.history.replaceState({}, document.title, window.location.pathname);
   }
 
   async function handleSignOut() {
@@ -3747,6 +3775,14 @@ export default function HomePage() {
     );
   }
 
+  if (passwordRecoveryActive) {
+    return (
+      <main className={screenShellClassName}>
+        <PasswordRecoveryScreen onContinue={finishPasswordRecovery} onSubmit={handlePasswordUpdate} />
+      </main>
+    );
+  }
+
   if (!authUser && !hasLocalHouseholdAccess) {
     return (
       <main className={screenShellClassName}>
@@ -3760,6 +3796,7 @@ export default function HomePage() {
 
         <AuthGate
           hasInvite={Boolean(pendingInviteCode)}
+          onRequestPasswordReset={handlePasswordResetRequest}
           onSubmit={(mode, email, password) => void handleAuthSubmit(mode, email, password)}
           onShowReleaseNotes={() => setShowReleaseNotes(true)}
         />
@@ -4928,15 +4965,19 @@ function LocationMapModal({
 
 function AuthGate({
   hasInvite,
+  onRequestPasswordReset,
   onShowReleaseNotes,
   onSubmit,
 }: {
   hasInvite: boolean;
+  onRequestPasswordReset: (email: string) => Promise<string | null>;
   onShowReleaseNotes: () => void;
   onSubmit: (mode: "sign-in" | "sign-up", email: string, password: string) => void;
 }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">(hasInvite ? "sign-up" : "sign-in");
   const [email, setEmail] = useState("");
+  const [resetStatus, setResetStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [resetError, setResetError] = useState("");
   const isSignUp = mode === "sign-up";
 
   useEffect(() => {
@@ -4955,6 +4996,26 @@ function AuthGate({
 
     window.localStorage.setItem(LAST_AUTH_EMAIL_KEY, emailValue);
     onSubmit(mode, emailValue, password);
+  }
+
+  async function handlePasswordReset() {
+    const emailValue = email.trim();
+    if (!emailValue || resetStatus === "sending") {
+      setResetError("Digite seu e-mail para receber o link.");
+      return;
+    }
+
+    setResetError("");
+    setResetStatus("sending");
+    const error = await onRequestPasswordReset(emailValue);
+    if (error) {
+      setResetStatus("idle");
+      setResetError(error);
+      return;
+    }
+
+    window.localStorage.setItem(LAST_AUTH_EMAIL_KEY, emailValue);
+    setResetStatus("sent");
   }
 
   return (
@@ -5005,6 +5066,11 @@ function AuthGate({
             required
             value={email}
           />
+          {resetStatus === "sent" ? (
+            <p className="auth-feedback auth-feedback-success" role="status">
+              Link enviado. Confira sua caixa de entrada e o spam.
+            </p>
+          ) : null}
         </div>
         <div className="field">
           <label htmlFor="auth-password">Senha</label>
@@ -5022,7 +5088,125 @@ function AuthGate({
           <Check size={18} />
           {hasInvite ? (isSignUp ? "Criar conta e continuar" : "Entrar e continuar") : isSignUp ? "Criar conta" : "Entrar"}
         </button>
+        {!isSignUp ? (
+          <button
+            className="auth-text-button"
+            disabled={resetStatus === "sending"}
+            onClick={() => void handlePasswordReset()}
+            type="button"
+          >
+            {resetStatus === "sending" ? "Enviando link…" : "Esqueci minha senha"}
+          </button>
+        ) : null}
+        {resetError ? (
+          <p className="auth-feedback auth-feedback-error" role="alert">
+            {resetError}
+          </p>
+        ) : null}
       </form>
+    </section>
+  );
+}
+
+function PasswordRecoveryScreen({
+  onContinue,
+  onSubmit,
+}: {
+  onContinue: () => void;
+  onSubmit: (password: string) => Promise<string | null>;
+}) {
+  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [error, setError] = useState("");
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password") ?? "");
+    const confirmation = String(form.get("passwordConfirmation") ?? "");
+
+    if (password.length < 6) {
+      setError("A nova senha precisa ter no mínimo 6 caracteres.");
+      return;
+    }
+    if (password !== confirmation) {
+      setError("As senhas digitadas não são iguais.");
+      return;
+    }
+
+    setError("");
+    setStatus("saving");
+    const updateError = await onSubmit(password);
+    if (updateError) {
+      setStatus("idle");
+      setError(updateError);
+      return;
+    }
+    setStatus("saved");
+  }
+
+  return (
+    <section className="household-setup auth-setup password-recovery-screen">
+      <div className="household-hero">
+        <span className="household-icon password-recovery-icon">
+          <KeyRound size={32} />
+        </span>
+        <p className="eyebrow">Recuperação de acesso</p>
+        <h1>{status === "saved" ? "Senha atualizada" : "Crie uma nova senha"}</h1>
+        <p>
+          {status === "saved"
+            ? "Seu acesso está protegido novamente. Você já pode continuar para a sua casa."
+            : "Escolha uma senha nova para entrar novamente em qualquer aparelho."}
+        </p>
+      </div>
+
+      {status === "saved" ? (
+        <div className="household-card auth-card password-recovery-success" role="status">
+          <span>
+            <Check size={24} />
+          </span>
+          <strong>Tudo certo</strong>
+          <p>A nova senha já está valendo para esta conta.</p>
+          <button className="primary-action" type="button" onClick={onContinue}>
+            Continuar
+          </button>
+        </div>
+      ) : (
+        <form className="household-card auth-card" onSubmit={handleSubmit}>
+          <div className="field">
+            <label htmlFor="recovery-password">Nova senha</label>
+            <input
+              autoComplete="new-password"
+              id="recovery-password"
+              minLength={6}
+              name="password"
+              placeholder="No mínimo 6 caracteres"
+              required
+              type="password"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="recovery-password-confirmation">Confirmar nova senha</label>
+            <input
+              autoComplete="new-password"
+              id="recovery-password-confirmation"
+              minLength={6}
+              name="passwordConfirmation"
+              placeholder="Digite a senha novamente"
+              required
+              type="password"
+            />
+          </div>
+          {error ? (
+            <p className="auth-feedback auth-feedback-error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <button className="primary-action" disabled={status === "saving"} type="submit">
+            <Check size={18} />
+            {status === "saving" ? "Salvando…" : "Salvar nova senha"}
+          </button>
+        </form>
+      )}
     </section>
   );
 }
