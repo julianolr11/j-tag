@@ -4578,11 +4578,11 @@ function WeatherSummaryModal({
         </div>
 
         <div className="weather-forecast-heading">
-          <span>
-            <strong>Próximos 5 dias</strong>
-            <small>Previsão resumida</small>
+          <strong>Próximos 5 dias</strong>
+          <span className="weather-temperature-labels" aria-hidden="true">
+            <small>Mín.</small>
+            <small>Máx.</small>
           </span>
-          <small>mín. / máx.</small>
         </div>
         <div className="weather-forecast-list">
           {weather.forecast?.length ? (
@@ -4601,7 +4601,8 @@ function WeatherSummaryModal({
                     <Droplets size={13} />
                     {day.precipitation}%
                   </span>
-                  <strong>{day.min}° · {day.max}°</strong>
+                  <strong className="weather-forecast-temperature weather-forecast-min">{day.min}°</strong>
+                  <strong className="weather-forecast-temperature weather-forecast-max">{day.max}°</strong>
                 </article>
               );
             })
