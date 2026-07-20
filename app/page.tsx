@@ -375,12 +375,13 @@ type ReminderRecurrence = "daily" | "weekly" | "monthly" | "yearly";
 type ProfileThemeId = "default" | "blue-light" | "aurora" | "green-home" | "graphite";
 type AppNotification = {
   id: string;
-  kind: "reminder" | "birthday" | "location" | "passwordRecovery" | "householdJoin";
+  kind: "reminder" | "birthday" | "location" | "passwordRecovery" | "householdJoin" | "directMessage";
   title: string;
   body: string;
-  action: "reminderCalendar" | "birthdayCalendar" | "location" | "passwordRecovery" | "householdJoin";
+  action: "reminderCalendar" | "birthdayCalendar" | "location" | "passwordRecovery" | "householdJoin" | "directMessage";
   locationShareId?: string;
   reminderId?: string;
+  directMessageId?: string;
 };
 type AvatarOption = {
   id: string;
@@ -412,6 +413,17 @@ type FamilyConnectionRequestRow = {
 type FamilyConnectionInvite = {
   id: string;
   family: FamilyNetworkItem;
+  createdAt: string;
+};
+
+type FamilyDirectMessage = {
+  id: string;
+  senderHouseholdId: string;
+  recipientHouseholdId: string;
+  senderResidentId: string;
+  recipientResidentId: string;
+  message: string;
+  readAt?: string;
   createdAt: string;
 };
 
@@ -1134,6 +1146,26 @@ async function loadFamilyConnections(householdId: string) {
       }))
       .filter((invite): invite is FamilyConnectionInvite => Boolean(invite.family)),
   };
+}
+
+async function loadFamilyDirectMessages() {
+  if (!supabase) return [] as FamilyDirectMessage[];
+  const { data, error } = await supabase
+    .from("family_direct_messages")
+    .select("*")
+    .order("created_at", { ascending: true })
+    .limit(500);
+  if (error) return [];
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    senderHouseholdId: row.sender_household_id,
+    recipientHouseholdId: row.recipient_household_id,
+    senderResidentId: row.sender_resident_id,
+    recipientResidentId: row.recipient_resident_id,
+    message: row.message,
+    readAt: row.read_at ?? undefined,
+    createdAt: row.created_at,
+  }));
 }
 
 async function loadRemoteStateById(householdId: string) {
@@ -2249,6 +2281,8 @@ export default function HomePage() {
   const [networkResidents, setNetworkResidents] = useState<Record<string, Resident[]>>({});
   const [connectedFamilies, setConnectedFamilies] = useState<FamilyNetworkItem[]>([]);
   const [familyConnectionInvites, setFamilyConnectionInvites] = useState<FamilyConnectionInvite[]>([]);
+  const [familyDirectMessages, setFamilyDirectMessages] = useState<FamilyDirectMessage[]>([]);
+  const [directConversation, setDirectConversation] = useState<{ family: FamilyNetworkItem; resident: Resident } | null>(null);
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [passwordRecoveryActive, setPasswordRecoveryActive] = useState(false);
@@ -2847,8 +2881,27 @@ export default function HomePage() {
       body: `${request.accountId} quer entrar nesta casa`,
       action: "householdJoin" as const,
     }));
+    const directMessageNotifications = activeResident
+      ? familyDirectMessages
+          .filter((message) => message.recipientResidentId === activeResident.id && !message.readAt)
+          .map((message) => {
+            const sender = [
+              ...appState.residents,
+              ...connectedFamilies.flatMap((family) => family.residents),
+            ].find((resident) => resident.id === message.senderResidentId);
+            return {
+              id: `direct-message-${message.id}`,
+              kind: "directMessage" as const,
+              title: sender?.name ?? "Nova mensagem",
+              body: message.message,
+              action: "directMessage" as const,
+              directMessageId: message.id,
+            };
+          })
+      : [];
 
     return [
+      ...directMessageNotifications,
       ...householdJoinNotifications,
       ...passwordRecoveryNotifications,
       ...locationNotifications,
@@ -2863,7 +2916,9 @@ export default function HomePage() {
     appState.locationShares,
     appState.residents,
     birthdayPreview,
+    connectedFamilies,
     dismissedNotifications,
+    familyDirectMessages,
     householdJoinRequests,
     passwordRecoveryRequests,
   ]);
@@ -2957,6 +3012,32 @@ export default function HomePage() {
       void supabase.removeChannel(channel);
     };
   }, [appState.household?.id]);
+
+  useEffect(() => {
+    if (!supabase || !activeResident) {
+      setFamilyDirectMessages([]);
+      return;
+    }
+    let active = true;
+    const refresh = async () => {
+      const messages = await loadFamilyDirectMessages();
+      if (active) setFamilyDirectMessages(messages);
+    };
+    void refresh();
+    const channel = supabase
+      .channel(`direct-messages-${activeResident.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "family_direct_messages" },
+        () => void refresh(),
+      )
+      .subscribe();
+    return () => {
+      active = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [activeResident?.id]);
+
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
 
@@ -3110,6 +3191,22 @@ export default function HomePage() {
   }
 
   function handleOpenNotification(notification: AppNotification) {
+    if (notification.action === "directMessage" && notification.directMessageId) {
+      const message = familyDirectMessages.find((item) => item.id === notification.directMessageId);
+      const family = familyNetworkItems.find((item) => item.id === message?.senderHouseholdId);
+      const resident = family?.residents.find((item) => item.id === message?.senderResidentId);
+      if (message && family && resident) {
+        setShowNotifications(false);
+        setDirectConversation({ family, resident });
+        if (!message.readAt && supabase) {
+          void supabase
+            .from("family_direct_messages")
+            .update({ read_at: new Date().toISOString() })
+            .eq("id", message.id);
+        }
+      }
+      return;
+    }
     if (notification.action === "passwordRecovery") {
       setShowNotifications(false);
       setShowPasswordRecoveryRequests(true);
@@ -5328,7 +5425,10 @@ export default function HomePage() {
             invites={familyConnectionInvites}
             onClose={() => setShowFamilyNetwork(false)}
             onInviteResponse={handleFamilyConnectionInvite}
-            onSendMessage={handleSendFamilyDirectMessage}
+            onOpenConversation={(family, resident) => {
+              setShowFamilyNetwork(false);
+              setDirectConversation({ family, resident });
+            }}
             onOpenFamily={(family) => {
               if (family.id === appState.household?.id) {
                 return;
@@ -5341,6 +5441,24 @@ export default function HomePage() {
               }
             }}
             onRequestConnection={handleRequestFamilyConnection}
+          />
+        ) : null}
+        {directConversation ? (
+          <DirectMessageModal
+            currentResident={activeResident}
+            family={directConversation.family}
+            messages={familyDirectMessages.filter(
+              (message) =>
+                (message.senderResidentId === activeResident.id &&
+                  message.recipientResidentId === directConversation.resident.id) ||
+                (message.senderResidentId === directConversation.resident.id &&
+                  message.recipientResidentId === activeResident.id),
+            )}
+            resident={directConversation.resident}
+            onClose={() => setDirectConversation(null)}
+            onSend={(message) =>
+              handleSendFamilyDirectMessage(directConversation.family, directConversation.resident, message)
+            }
           />
         ) : null}
         {showNotifications ? (
@@ -5649,6 +5767,8 @@ function NotificationsModal({
                       <KeyRound size={17} />
                     ) : notification.kind === "householdJoin" ? (
                       <UserPlus size={17} />
+                    ) : notification.kind === "directMessage" ? (
+                      <MessageCircle size={17} />
                     ) : (
                       <Bell size={17} />
                     )}
@@ -5714,9 +5834,9 @@ function FamilyNetworkModal({
   invites,
   onClose,
   onInviteResponse,
+  onOpenConversation,
   onOpenFamily,
   onRequestConnection,
-  onSendMessage,
 }: {
   canManageConnections: boolean;
   currentHouseholdId: string;
@@ -5725,9 +5845,9 @@ function FamilyNetworkModal({
   invites: FamilyConnectionInvite[];
   onClose: () => void;
   onInviteResponse: (inviteId: string, accept: boolean) => void | Promise<void>;
+  onOpenConversation: (family: FamilyNetworkItem, resident: Resident) => void;
   onOpenFamily: (family: FamilyNetworkItem) => void;
   onRequestConnection: (familyCode: string) => Promise<string | null>;
-  onSendMessage: (family: FamilyNetworkItem, resident: Resident, message: string) => Promise<string | null>;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
   const [showConnector, setShowConnector] = useState(false);
@@ -5735,10 +5855,6 @@ function FamilyNetworkModal({
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [connectionError, setConnectionError] = useState("");
   const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
-  const [messageResidentId, setMessageResidentId] = useState<string | null>(null);
-  const [directMessage, setDirectMessage] = useState("");
-  const [messageStatus, setMessageStatus] = useState<"idle" | "sending" | "sent">("idle");
-  const [messageError, setMessageError] = useState("");
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
   const dragRef = useRef<{ pointerId: number; x: number; y: number; cameraX: number; cameraY: number; moved: boolean } | null>(null);
   const orderedFamilies = [
@@ -5937,10 +6053,6 @@ function FamilyNetworkModal({
                 onClick={() => {
                   if (dragRef.current?.moved) return;
                   setSelectedFamilyId((current) => current === family.id ? null : family.id);
-                  setMessageResidentId(null);
-                  setDirectMessage("");
-                  setMessageStatus("idle");
-                  setMessageError("");
                 }}
                 style={{ "--family-x": `${x}%`, "--family-y": `${y}%`, "--family-index": index } as CSSProperties}
                 aria-label={`${family.name}, ${family.residents.length} perfis`}
@@ -6010,51 +6122,12 @@ function FamilyNetworkModal({
                       <button
                         type="button"
                         className="family-network-message-button"
-                        onClick={() => {
-                          setMessageResidentId(resident.id);
-                          setDirectMessage("");
-                          setMessageStatus("idle");
-                          setMessageError("");
-                        }}
+                        onClick={() => onOpenConversation(selectedFamily, resident)}
                         aria-label={`Enviar mensagem para ${resident.name}`}
                       >
                         <Send size={17} />
                       </button>
                     ) : <span />}
-                    {messageResidentId === resident.id ? (
-                      <form
-                        onSubmit={async (event) => {
-                          event.preventDefault();
-                          setMessageStatus("sending");
-                          setMessageError("");
-                          const error = await onSendMessage(selectedFamily, resident, directMessage);
-                          if (error) {
-                            setMessageError(error);
-                            setMessageStatus("idle");
-                            return;
-                          }
-                          setMessageStatus("sent");
-                          setDirectMessage("");
-                        }}
-                      >
-                        <textarea
-                          autoFocus
-                          maxLength={500}
-                          placeholder={`Mensagem para ${resident.name}`}
-                          value={directMessage}
-                          onChange={(event) => {
-                            setDirectMessage(event.target.value);
-                            setMessageStatus("idle");
-                          }}
-                        />
-                        <button type="submit" disabled={!directMessage.trim() || messageStatus === "sending"}>
-                          <Send size={15} />
-                          {messageStatus === "sending" ? "Enviando" : "Enviar"}
-                        </button>
-                        {messageError ? <small className="family-message-error">{messageError}</small> : null}
-                        {messageStatus === "sent" ? <small className="family-message-sent">Mensagem enviada.</small> : null}
-                      </form>
-                    ) : null}
                   </article>
                 ))}
               </div>
@@ -6067,6 +6140,114 @@ function FamilyNetworkModal({
             </aside>
           ) : null}
         </div>
+      </section>
+    </div>
+  );
+}
+
+function DirectMessageModal({
+  currentResident,
+  family,
+  messages,
+  resident,
+  onClose,
+  onSend,
+}: {
+  currentResident: Resident;
+  family: FamilyNetworkItem;
+  messages: FamilyDirectMessage[];
+  resident: Resident;
+  onClose: () => void;
+  onSend: (message: string) => Promise<string | null>;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState<"idle" | "sending">("idle");
+  const [error, setError] = useState("");
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    const unreadIds = messages
+      .filter((item) => item.recipientResidentId === currentResident.id && !item.readAt)
+      .map((item) => item.id);
+    if (unreadIds.length) {
+      void supabase
+        .from("family_direct_messages")
+        .update({ read_at: new Date().toISOString() })
+        .in("id", unreadIds);
+    }
+  }, [currentResident.id, messages]);
+
+  return (
+    <div className={backdropClassName}>
+      <section className="dark-modal direct-message-modal" role="dialog" aria-modal="true" aria-labelledby="direct-message-title">
+        <header className="direct-message-header">
+          <button type="button" onClick={requestClose} aria-label="Voltar"><ChevronLeft size={20} /></button>
+          <span className="direct-message-avatar" style={{ backgroundColor: resident.color }}>
+            {resident.photo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={resident.photo} alt="" />
+            ) : resident.name.slice(0, 1).toUpperCase()}
+          </span>
+          <span>
+            <strong id="direct-message-title">{resident.name}</strong>
+            <small>{family.name}</small>
+          </span>
+          <MessageCircle size={20} />
+        </header>
+        <div className="direct-message-thread" ref={listRef}>
+          {messages.length ? messages.map((item) => {
+            const mine = item.senderResidentId === currentResident.id;
+            return (
+              <article className={mine ? "mine" : "theirs"} key={item.id}>
+                <p>{item.message}</p>
+                <small>
+                  {new Date(item.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  {mine ? (item.readAt ? " · lida" : " · enviada") : ""}
+                </small>
+              </article>
+            );
+          }) : (
+            <div className="direct-message-empty">
+              <Send size={23} />
+              <strong>Comece a conversa</strong>
+              <span>Esta mensagem será entregue diretamente para {resident.name}.</span>
+            </div>
+          )}
+        </div>
+        <form
+          className="direct-message-composer"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!message.trim()) return;
+            setStatus("sending");
+            setError("");
+            const sendError = await onSend(message);
+            if (sendError) {
+              setError(sendError);
+              setStatus("idle");
+              return;
+            }
+            setMessage("");
+            setStatus("idle");
+          }}
+        >
+          <textarea
+            maxLength={500}
+            placeholder="Escreva uma mensagem…"
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+          />
+          <button type="submit" disabled={!message.trim() || status === "sending"} aria-label="Enviar mensagem">
+            <Send size={19} />
+          </button>
+          {error ? <small>{error}</small> : null}
+        </form>
       </section>
     </div>
   );
