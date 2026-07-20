@@ -374,10 +374,10 @@ type ReminderRecurrence = "daily" | "weekly" | "monthly" | "yearly";
 type ProfileThemeId = "default" | "blue-light" | "aurora" | "green-home" | "graphite";
 type AppNotification = {
   id: string;
-  kind: "reminder" | "birthday" | "location";
+  kind: "reminder" | "birthday" | "location" | "passwordRecovery" | "householdJoin";
   title: string;
   body: string;
-  action: "reminderCalendar" | "birthdayCalendar" | "location";
+  action: "reminderCalendar" | "birthdayCalendar" | "location" | "passwordRecovery" | "householdJoin";
   locationShareId?: string;
   reminderId?: string;
 };
@@ -1081,14 +1081,14 @@ async function loadFamilyConnections(householdId: string) {
   const [householdsResult, residentsResult] = await Promise.all([
     supabase.from("households").select("*").in("id", otherHouseholdIds),
     supabase
-      .from("residents")
-      .select("id, household_id, name, role, pin, color, photo_url, theme")
+      .from("family_resident_previews")
+      .select("id, household_id, name, role, color, photo_url, theme")
       .in("household_id", otherHouseholdIds),
   ]);
 
   const residentsByHousehold = ((residentsResult.data ?? []) as ResidentRow[]).reduce<Record<string, Resident[]>>(
     (result, row) => {
-      result[row.household_id] = [...(result[row.household_id] ?? []), mapResident(row)];
+      result[row.household_id] = [...(result[row.household_id] ?? []), mapResident({ ...row, pin: "" })];
       return result;
     },
     {},
@@ -1196,7 +1196,7 @@ async function upsertRemoteHouseholdMember(householdId: string, userId: string, 
   return !error;
 }
 
-async function createRemoteHousehold(household: Household, resident: Resident) {
+async function createRemoteHousehold(household: Household, resident: Resident, authUserId?: string) {
   if (!supabase) {
     return false;
   }
@@ -1219,6 +1219,7 @@ async function createRemoteHousehold(household: Household, resident: Resident) {
     role: resident.role,
     pin: resident.pin,
     color: resident.color,
+    auth_user_id: authUserId ?? null,
     photo_url: resident.photo ?? null,
     theme: getProfileTheme(resident.theme),
   };
@@ -1235,16 +1236,10 @@ async function createRemoteHousehold(household: Household, resident: Resident) {
   }
 
   await supabase.from("households").update({ owner_resident_id: resident.id }).eq("id", household.id);
-  await supabase.from("household_invites").insert({
-    household_id: household.id,
-    code: household.code,
-    created_by_resident_id: resident.id,
-  });
-
   return true;
 }
 
-async function insertRemoteResident(householdId: string, resident: Resident) {
+async function insertRemoteResident(householdId: string, resident: Resident, authUserId?: string) {
   if (!supabase) {
     return false;
   }
@@ -1256,6 +1251,7 @@ async function insertRemoteResident(householdId: string, resident: Resident) {
     role: resident.role,
     pin: resident.pin,
     color: resident.color,
+    auth_user_id: authUserId ?? null,
     photo_url: resident.photo ?? null,
     theme: getProfileTheme(resident.theme),
   };
@@ -1294,15 +1290,6 @@ async function updateRemoteResident(resident: Resident) {
     error = fallbackResult.error;
   }
 
-  return !error;
-}
-
-async function deleteRemoteResident(residentId: string) {
-  if (!supabase) {
-    return false;
-  }
-
-  const { error } = await supabase.from("residents").delete().eq("id", residentId);
   return !error;
 }
 
@@ -2827,11 +2814,42 @@ export default function HomePage() {
           locationShareId: share.id,
         };
       });
+    const passwordRecoveryNotifications = passwordRecoveryRequests
+      .filter((request) => request.status === "pending")
+      .map((request) => ({
+        id: `password-recovery-${request.id}`,
+        kind: "passwordRecovery" as const,
+        title: "Recuperação de senha",
+        body: `${request.accountId} pediu um código temporário`,
+        action: "passwordRecovery" as const,
+      }));
+    const householdJoinNotifications = householdJoinRequests.map((request) => ({
+      id: `household-join-${request.id}`,
+      kind: "householdJoin" as const,
+      title: "Pedido de entrada",
+      body: `${request.accountId} quer entrar nesta casa`,
+      action: "householdJoin" as const,
+    }));
 
-    return [...locationNotifications, ...reminderNotifications, ...birthdayNotifications].filter(
+    return [
+      ...householdJoinNotifications,
+      ...passwordRecoveryNotifications,
+      ...locationNotifications,
+      ...reminderNotifications,
+      ...birthdayNotifications,
+    ].filter(
       (notification) => !dismissedNotifications.includes(notification.id),
     );
-  }, [activeReminders, activeResident?.id, appState.locationShares, appState.residents, birthdayPreview, dismissedNotifications]);
+  }, [
+    activeReminders,
+    activeResident?.id,
+    appState.locationShares,
+    appState.residents,
+    birthdayPreview,
+    dismissedNotifications,
+    householdJoinRequests,
+    passwordRecoveryRequests,
+  ]);
   const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
   const familyNetworkItems = useMemo<FamilyNetworkItem[]>(() => {
     const households = [...quickAccessHouseholds];
@@ -2868,7 +2886,7 @@ export default function HomePage() {
     const householdIds = quickAccessHouseholds.map((household) => household.id);
     void supabase
       .from("residents")
-      .select("id, household_id, name, role, pin, color, photo_url, theme")
+      .select("id, household_id, name, role, color, photo_url, theme")
       .in("household_id", householdIds)
       .then(({ data, error }) => {
         if (!active || error) {
@@ -2877,7 +2895,7 @@ export default function HomePage() {
 
         const grouped = ((data ?? []) as ResidentRow[]).reduce<Record<string, Resident[]>>(
           (result, row) => {
-            result[row.household_id] = [...(result[row.household_id] ?? []), mapResident(row)];
+            result[row.household_id] = [...(result[row.household_id] ?? []), mapResident({ ...row, pin: "" })];
             return result;
           },
           {},
@@ -3076,6 +3094,16 @@ export default function HomePage() {
   }
 
   function handleOpenNotification(notification: AppNotification) {
+    if (notification.action === "passwordRecovery") {
+      setShowNotifications(false);
+      setShowPasswordRecoveryRequests(true);
+      return;
+    }
+    if (notification.action === "householdJoin") {
+      setShowNotifications(false);
+      setShowHouseholdJoinRequests(true);
+      return;
+    }
     if (notification.action === "location" && notification.locationShareId) {
       const share = appState.locationShares.find((item) => item.id === notification.locationShareId);
       if (share) {
@@ -3086,6 +3114,10 @@ export default function HomePage() {
     }
 
     if (notification.kind === "location") {
+      return;
+    }
+
+    if (notification.kind !== "reminder" && notification.kind !== "birthday") {
       return;
     }
 
@@ -3299,11 +3331,6 @@ export default function HomePage() {
         window.alert("Este convite não é mais válido.");
         return;
       }
-      const invitedHousehold = await loadRemoteStateByCode(normalizedFamilyCode);
-      if (!invitedHousehold?.household) {
-        window.alert("Código da família não encontrado.");
-        return;
-      }
       setPendingInviteCode(normalizedFamilyCode);
     }
 
@@ -3368,17 +3395,6 @@ export default function HomePage() {
       setAuthTransitionActive(false);
       window.alert("Conta criada. Se o Supabase pedir confirmação, confirme o e-mail antes de entrar.");
     }
-  }
-
-  async function handleAddAccountEmail(email: string) {
-    if (!supabase || !authUser) {
-      return "Supabase não está configurado neste ambiente.";
-    }
-    const { error } = await supabase
-      .from("account_access")
-      .update({ recovery_email: email.trim() })
-      .eq("user_id", authUser.id);
-    return error?.message ?? null;
   }
 
   async function handleRequestPasswordRecovery(accountId: string) {
@@ -3520,12 +3536,10 @@ export default function HomePage() {
       return "O ID precisa ter pelo menos 4 caracteres.";
     }
 
-    const recoveryEmail = authUser.email;
     const { error: handleError } = await supabase.from("account_access").upsert(
       {
         user_id: authUser.id,
         handle,
-        recovery_email: recoveryEmail,
       },
       { onConflict: "user_id" },
     );
@@ -3628,7 +3642,7 @@ export default function HomePage() {
       resident.photo = photoUrl;
     }
 
-    await createRemoteHousehold(household, resident);
+    await createRemoteHousehold(household, resident, authUser?.id);
     if (authUser) {
       await upsertRemoteHouseholdMember(household.id, authUser.id, "owner");
       await refreshAccountHouseholds(authUser.id);
@@ -3701,7 +3715,7 @@ export default function HomePage() {
       resident.photo = photoUrl;
     }
 
-    await insertRemoteResident(household.id, resident);
+    await insertRemoteResident(household.id, resident, authUser?.id);
     if (authUser) {
       await refreshAccountHouseholds(authUser.id);
     }
@@ -3782,11 +3796,31 @@ export default function HomePage() {
       return;
     }
 
-    await deleteRemoteResident(residentId);
+    const accessToken = await getCurrentAccessToken();
+    if (!accessToken) {
+      showAssistantMessage("Sua sessão expirou.", false);
+      return;
+    }
+    const response = await fetch("/api/household/members", {
+      body: JSON.stringify({ residentId }),
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      method: "DELETE",
+    });
+    const result = (await response.json().catch(() => ({}))) as { error?: string };
+    if (!response.ok) {
+      showAssistantMessage(result.error ?? "Não foi possível remover o morador.", false);
+      return;
+    }
     setAppState((current) => ({
       ...current,
       residents: current.residents.filter((resident) => resident.id !== residentId),
       reminders: current.reminders.filter((reminder) => reminder.residentId !== residentId),
+      birthdays: current.birthdays.filter(
+        (birthday) => birthday.residentId !== residentId && birthday.profileResidentId !== residentId,
+      ),
+      locationShares: current.locationShares.filter((share) => share.residentId !== residentId),
+      activityEvents: current.activityEvents.filter((event) => event.residentId !== residentId),
+      dailyMessages: current.dailyMessages.filter((message) => message.residentId !== residentId),
     }));
   }
 
@@ -4150,30 +4184,6 @@ export default function HomePage() {
   function handlePreviewTheme(theme: ProfileThemeId) {
     runScreenTransition("soft", () => {
       setThemePreview(theme);
-    });
-  }
-
-  async function handleDeleteResident() {
-    if (!activeResident) {
-      return;
-    }
-
-    const shouldDelete = window.confirm(`Excluir o perfil ${activeResident.name}?`);
-    if (!shouldDelete) {
-      return;
-    }
-
-    await deleteRemoteResident(activeResident.id);
-    setAppState((current) => ({
-      ...current,
-      residents: current.residents.filter((resident) => resident.id !== activeResident.id),
-      reminders: current.reminders.filter((reminder) => reminder.residentId !== activeResident.id),
-    }));
-    clearLastResident();
-    runScreenTransition("back", () => {
-      setActiveResident(null);
-      setEditResidentPhoto("");
-      setProfileModal(null);
     });
   }
 
@@ -4739,14 +4749,6 @@ export default function HomePage() {
                 <MapPin size={20} />
               </button>
               <button
-                className="icon-glass-button"
-                type="button"
-                onClick={() => setShowHouseholdInvite(true)}
-                aria-label="Convidar para o lar"
-              >
-                <UserPlus size={20} />
-              </button>
-              <button
                 className={`icon-glass-button voice-button ${isListening ? "listening" : ""}`}
                 type="button"
                 onClick={handleVoiceAssistant}
@@ -5122,8 +5124,6 @@ export default function HomePage() {
         ) : null}
         {profileModal === "edit" ? (
           <EditResidentModal
-            accountEmail={authUser?.email ?? ""}
-            isAnonymousAccount={Boolean(authUser?.email?.endsWith(`@${ACCOUNT_EMAIL_DOMAIN}`))}
             birthday={appState.birthdays.find((birthday) => birthday.profileResidentId === activeResident.id)}
             photo={editResidentPhoto || activeResident.photo || ""}
             resident={activeResident}
@@ -5136,8 +5136,6 @@ export default function HomePage() {
               setThemePreview(null);
               setProfileModal(null);
             }}
-            onDelete={handleDeleteResident}
-            onAddAccountEmail={handleAddAccountEmail}
             onAddAccountPassword={handleAddAccountPassword}
             onPhotoSelect={selectEditResidentAvatar}
             onPhotoUpload={(file) =>
@@ -5219,12 +5217,40 @@ export default function HomePage() {
             residents={appState.residents}
             onClose={() => setShowHouseholdInvite(false)}
             onCopy={copyHouseholdInvite}
+            onAddProfile={() => {
+              setShowHouseholdInvite(false);
+              setShowNewResident(true);
+            }}
             onRemoveResident={handleRemoveHouseholdResident}
           onShare={shareHouseholdInvite}
         />
       ) : null}
+        {showNewResident ? (
+          <NewResidentModal
+            photo={newResidentPhoto}
+            onClose={() => {
+              if (preparedNewResidentPhoto) {
+                URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
+                setPreparedNewResidentPhoto(null);
+              }
+              setNewResidentPhoto("");
+              setShowNewResident(false);
+            }}
+            onPhotoSelect={selectNewResidentAvatar}
+            onPhotoUpload={(file) =>
+              prepareResidentPhoto(
+                file,
+                preparedNewResidentPhoto,
+                setPreparedNewResidentPhoto,
+                setNewResidentPhoto,
+              )
+            }
+            onSubmit={handleAddResident}
+          />
+        ) : null}
         {showFamilyNetwork ? (
           <FamilyNetworkModal
+            canManageConnections={appState.household.ownerResidentId === activeResident.id}
             currentHouseholdId={appState.household.id}
             families={familyNetworkItems}
             invites={familyConnectionInvites}
@@ -5294,11 +5320,10 @@ export default function HomePage() {
           <button className="brand-button" type="button" onClick={() => setShowReleaseNotes(true)} aria-label="Ver novidades">
             <LogoMark size={24} />
           </button>
-          <button className="household-pill" type="button" onClick={() => setShowHouseholdInvite(true)}>
+          <div className="household-pill">
             <House size={17} />
             <span>{appState.household.name}</span>
-            <strong>{appState.household.code}</strong>
-          </button>
+          </div>
           <button className="secondary-mini-button" type="button" onClick={() => void handleSignOut()}>
             Sair
           </button>
@@ -5320,13 +5345,6 @@ export default function HomePage() {
               <strong>{resident.name}</strong>
             </button>
           ))}
-
-          <button className="stream-profile add-profile" type="button" onClick={() => setShowNewResident(true)}>
-            <span className="avatar-frame avatar-empty">
-              <Plus size={42} />
-            </span>
-            <strong>Novo</strong>
-          </button>
         </div>
 
         <button className="emergency-button fixed" type="button" onClick={() => setShowEmergency(true)}>
@@ -5345,30 +5363,6 @@ export default function HomePage() {
         />
       ) : null}
 
-      {showNewResident ? (
-        <NewResidentModal
-          photo={newResidentPhoto}
-          onClose={() => {
-            if (preparedNewResidentPhoto) {
-              URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
-              setPreparedNewResidentPhoto(null);
-            }
-            setNewResidentPhoto("");
-            setShowNewResident(false);
-          }}
-          onPhotoSelect={selectNewResidentAvatar}
-          onPhotoUpload={(file) =>
-            prepareResidentPhoto(
-              file,
-              preparedNewResidentPhoto,
-              setPreparedNewResidentPhoto,
-              setNewResidentPhoto,
-            )
-          }
-          onSubmit={handleAddResident}
-        />
-      ) : null}
-
       {showEmergency ? (
         <EmergencyModal
           contacts={appState.emergencyContacts}
@@ -5376,18 +5370,6 @@ export default function HomePage() {
           onClose={() => setShowEmergency(false)}
           onPickDeviceContact={handlePickDeviceContact}
           onRemoveContact={handleRemoveEmergencyContact}
-        />
-      ) : null}
-      {showHouseholdInvite ? (
-        <HouseholdInviteModal
-          activeResidentId={undefined}
-          canManageMembers={false}
-          household={appState.household}
-          residents={appState.residents}
-          onClose={() => setShowHouseholdInvite(false)}
-          onCopy={copyHouseholdInvite}
-          onRemoveResident={handleRemoveHouseholdResident}
-          onShare={shareHouseholdInvite}
         />
       ) : null}
       {showNotifications ? (
@@ -5555,6 +5537,10 @@ function NotificationsModal({
                       <Cake size={17} />
                     ) : notification.kind === "location" ? (
                       <MapPin size={17} />
+                    ) : notification.kind === "passwordRecovery" ? (
+                      <KeyRound size={17} />
+                    ) : notification.kind === "householdJoin" ? (
+                      <UserPlus size={17} />
                     ) : (
                       <Bell size={17} />
                     )}
@@ -5613,6 +5599,7 @@ function formatActivityRelativeTime(value: string) {
 }
 
 function FamilyNetworkModal({
+  canManageConnections,
   currentHouseholdId,
   families,
   invites,
@@ -5621,6 +5608,7 @@ function FamilyNetworkModal({
   onOpenFamily,
   onRequestConnection,
 }: {
+  canManageConnections: boolean;
   currentHouseholdId: string;
   families: FamilyNetworkItem[];
   invites: FamilyConnectionInvite[];
@@ -5667,7 +5655,7 @@ function FamilyNetworkModal({
               : `${orderedFamilies.length} famílias ligadas à sua conta.`}
           </span>
         </div>
-        <div className="family-network-actions">
+        {canManageConnections ? <div className="family-network-actions">
           <button
             className="family-connect-toggle"
             type="button"
@@ -5757,7 +5745,7 @@ function FamilyNetworkModal({
               ) : null}
             </form>
           ) : null}
-        </div>
+        </div> : null}
         <div className={`family-network-canvas ${orderedFamilies.length === 1 ? "family-network-single" : ""}`}>
           <svg className="family-network-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             {center
@@ -6573,7 +6561,7 @@ function AuthGate({
         </h1>
         <p>
           {hasInvite
-            ? "Use sua própria conta. Depois disso, o convite continua sozinho e você cria seu perfil."
+            ? "Use sua própria conta. O dono da casa receberá o pedido e decidirá se libera a criação do perfil."
             : "Uma conta pode participar de uma ou mais famílias e ver os perfis delas."}
         </p>
       </div>
@@ -6698,7 +6686,13 @@ function AuthGate({
         ) : null}
         <button className="primary-action" type="submit">
           <Check size={18} />
-          {hasInvite ? (isSignUp ? "Criar conta e continuar" : "Entrar e continuar") : isSignUp ? "Criar conta" : "Entrar"}
+          {hasInvite
+            ? isSignUp
+              ? "Criar conta e solicitar entrada"
+              : "Entrar e solicitar entrada"
+            : isSignUp
+              ? "Criar conta"
+              : "Entrar"}
         </button>
       </form>
     </section>
@@ -6995,7 +6989,9 @@ function LegacyAccountMigrationScreen({
             required
             value={handle}
           />
-          <small className="field-helper">O e-mail {email} ficará guardado apenas para recuperação.</small>
+          <small className="field-helper">
+            O acesso antigo de {email} será substituído pelo novo ID. A recuperação passará a ser feita pelo dono da casa.
+          </small>
         </div>
         {error ? <p className="auth-feedback auth-feedback-error">{error}</p> : null}
         <button className="primary-action" disabled={status === "saving"} type="submit">
@@ -7344,6 +7340,7 @@ function HouseholdInviteModal({
   residents,
   onClose,
   onCopy,
+  onAddProfile,
   onRemoveResident,
   onShare,
 }: {
@@ -7353,6 +7350,7 @@ function HouseholdInviteModal({
   residents: Resident[];
   onClose: () => void;
   onCopy: () => void;
+  onAddProfile: () => void;
   onRemoveResident: (residentId: string) => void;
   onShare: () => void;
 }) {
@@ -7385,6 +7383,10 @@ function HouseholdInviteModal({
           </div>
         ) : null}
         <div className="invite-actions">
+          <button className="secondary-action" type="button" onClick={onAddProfile}>
+            <Plus size={18} />
+            Novo perfil
+          </button>
           <button className="secondary-action" type="button" onClick={onCopy}>
             <KeyRound size={18} />
             Copiar link
@@ -7977,28 +7979,20 @@ function VisibilityPicker({ defaultValue = "household" }: { defaultValue?: ItemV
 }
 
 function EditResidentModal({
-  accountEmail,
   birthday,
-  isAnonymousAccount,
   photo,
   resident,
   onClose,
-  onDelete,
-  onAddAccountEmail,
   onAddAccountPassword,
   onPhotoSelect,
   onPhotoUpload,
   onThemePreview,
   onSubmit,
 }: {
-  accountEmail: string;
   birthday?: Birthday;
-  isAnonymousAccount: boolean;
   photo: string;
   resident: Resident;
   onClose: () => void;
-  onDelete: () => void;
-  onAddAccountEmail: (email: string) => Promise<string | null>;
   onAddAccountPassword: (password: string) => Promise<string | null>;
   onPhotoSelect: (photo: string) => void;
   onPhotoUpload: (file?: File) => void | Promise<void>;
@@ -8006,22 +8000,8 @@ function EditResidentModal({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
-  const [accountStatus, setAccountStatus] = useState<"idle" | "saving" | "sent" | "saved">("idle");
+  const [accountStatus, setAccountStatus] = useState<"idle" | "saving" | "saved">("idle");
   const [accountError, setAccountError] = useState("");
-
-  async function handleAccountEmail() {
-    const input = document.querySelector<HTMLInputElement>("#profile-account-email");
-    const email = input?.value.trim() ?? "";
-    if (!email) {
-      setAccountError("Digite um e-mail válido.");
-      return;
-    }
-    setAccountError("");
-    setAccountStatus("saving");
-    const error = await onAddAccountEmail(email);
-    setAccountStatus(error ? "idle" : "sent");
-    setAccountError(error ?? "");
-  }
 
   async function handleAccountPassword() {
     const password = document.querySelector<HTMLInputElement>("#profile-account-password")?.value ?? "";
@@ -8107,62 +8087,31 @@ function EditResidentModal({
         </div>
         <section className="profile-account-section">
           <div>
-            <p className="eyebrow">Recuperação de acesso</p>
-            <h3>{isAnonymousAccount ? "Adicione seu e-mail quando quiser" : "Conta protegida"}</h3>
+            <p className="eyebrow">Segurança da conta</p>
+            <h3>Alterar minha senha</h3>
           </div>
-          {isAnonymousAccount ? (
-            <>
-              <p>O e-mail ficará opcional e será usado somente para recuperar o acesso.</p>
-              <div className="field">
-                <label htmlFor="profile-account-email">E-mail</label>
-                <input
-                  autoComplete="email"
-                  id="profile-account-email"
-                  inputMode="email"
-                  placeholder="voce@email.com"
-                  type="email"
-                />
-              </div>
-              <button
-                className="secondary-action"
-                disabled={accountStatus === "saving" || accountStatus === "sent"}
-                onClick={() => void handleAccountEmail()}
-                type="button"
-              >
-                {accountStatus === "sent" ? "E-mail salvo" : "Salvar e-mail de recuperação"}
-              </button>
-              {accountStatus === "sent" ? (
-                <p className="auth-feedback auth-feedback-success" role="status">
-                  E-mail de recuperação salvo na sua conta.
-                </p>
-              ) : null}
-            </>
-          ) : (
-            <>
-              <p>{accountEmail ? `E-mail vinculado: ${accountEmail}` : "E-mail confirmado."}</p>
-              <div className="field">
-                <label htmlFor="profile-account-password">Criar ou alterar senha</label>
-                <input id="profile-account-password" minLength={6} placeholder="No mínimo 6 caracteres" type="password" />
-              </div>
-              <div className="field">
-                <label htmlFor="profile-account-password-confirmation">Confirmar senha</label>
-                <input
-                  id="profile-account-password-confirmation"
-                  minLength={6}
-                  placeholder="Digite novamente"
-                  type="password"
-                />
-              </div>
-              <button
-                className="secondary-action"
-                disabled={accountStatus === "saving"}
-                onClick={() => void handleAccountPassword()}
-                type="button"
-              >
-                {accountStatus === "saved" ? "Senha salva" : "Salvar senha de acesso"}
-              </button>
-            </>
-          )}
+          <p>Se você esquecer a senha, o dono da casa poderá aprovar um código temporário pelo próprio J-Tag.</p>
+          <div className="field">
+            <label htmlFor="profile-account-password">Nova senha</label>
+            <input id="profile-account-password" minLength={6} placeholder="No mínimo 6 caracteres" type="password" />
+          </div>
+          <div className="field">
+            <label htmlFor="profile-account-password-confirmation">Confirmar senha</label>
+            <input
+              id="profile-account-password-confirmation"
+              minLength={6}
+              placeholder="Digite novamente"
+              type="password"
+            />
+          </div>
+          <button
+            className="secondary-action"
+            disabled={accountStatus === "saving"}
+            onClick={() => void handleAccountPassword()}
+            type="button"
+          >
+            {accountStatus === "saved" ? "Senha salva" : "Salvar nova senha"}
+          </button>
           {accountError ? (
             <p className="auth-feedback auth-feedback-error" role="alert">
               {accountError}
@@ -8172,10 +8121,6 @@ function EditResidentModal({
         <button className="primary-action" type="submit">
           <Check size={18} />
           Salvar perfil
-        </button>
-        <button className="danger-action" type="button" onClick={onDelete}>
-          <Trash2 size={18} />
-          Excluir perfil
         </button>
       </form>
     </div>

@@ -72,15 +72,31 @@ export async function POST(request: Request) {
     }
     const { data: recoveryRequest } = await adminClient
       .from("password_recovery_requests")
-      .select("id,code_hash,expires_at")
+      .select("id,attempt_count,code_hash,expires_at")
       .eq("target_user_id", targetAccess.user_id)
       .eq("status", "approved")
       .gt("expires_at", new Date().toISOString())
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (!recoveryRequest || hashCode(recoveryRequest.id, body.code ?? "") !== recoveryRequest.code_hash) {
+    if (!recoveryRequest) {
       return NextResponse.json({ error: "Código inválido ou expirado." }, { status: 400 });
+    }
+    if (hashCode(recoveryRequest.id, body.code ?? "") !== recoveryRequest.code_hash) {
+      const attemptCount = (recoveryRequest.attempt_count ?? 0) + 1;
+      await adminClient
+        .from("password_recovery_requests")
+        .update({
+          attempt_count: attemptCount,
+          code_hash: attemptCount >= 5 ? null : recoveryRequest.code_hash,
+          status: attemptCount >= 5 ? "cancelled" : "approved",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", recoveryRequest.id);
+      return NextResponse.json(
+        { error: attemptCount >= 5 ? "Código bloqueado após muitas tentativas." : "Código inválido ou expirado." },
+        { status: 400 },
+      );
     }
 
     const { error: updateError } = await adminClient.auth.admin.updateUserById(targetAccess.user_id, {
@@ -106,6 +122,18 @@ export async function POST(request: Request) {
     .limit(1)
     .maybeSingle();
   if (!membership?.household_id) {
+    return NextResponse.json(genericSuccess);
+  }
+
+  const { data: activeRequest } = await adminClient
+    .from("password_recovery_requests")
+    .select("id,status")
+    .eq("target_user_id", targetAccess.user_id)
+    .in("status", ["pending", "approved"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (activeRequest?.status === "pending") {
     return NextResponse.json(genericSuccess);
   }
 
@@ -196,6 +224,7 @@ export async function PATCH(request: Request) {
     .from("password_recovery_requests")
     .update({
       approved_by_user_id: user.id,
+      attempt_count: 0,
       code_hash: hashCode(recoveryRequest.id, code),
       expires_at: expiresAt,
       status: "approved",
