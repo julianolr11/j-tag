@@ -2745,6 +2745,12 @@ export default function HomePage() {
     () => appState.dailyMessages.filter((message) => getDailyMessageExpiry(message) > dailyMessageNow),
     [appState.dailyMessages, dailyMessageNow],
   );
+  const activeActivityEvents = useMemo(() => {
+    const activeMessageIds = new Set(activeDailyMessages.map((message) => message.id));
+    return appState.activityEvents.filter(
+      (event) => event.kind !== "message" || Boolean(event.messageId && activeMessageIds.has(event.messageId)),
+    );
+  }, [activeDailyMessages, appState.activityEvents]);
   const latestDailyMessage = activeDailyMessages[0];
   const dashboardReminders = useMemo(() => {
     const today = startOfToday();
@@ -3285,6 +3291,30 @@ export default function HomePage() {
       })
       .eq("id", inviteId);
     await refreshCurrentFamilyConnections();
+  }
+
+  async function handleSendFamilyDirectMessage(targetFamily: FamilyNetworkItem, targetResident: Resident, message: string) {
+    if (!supabase || !appState.household || !activeResident) {
+      return "Não foi possível identificar seu perfil.";
+    }
+    const body = message.trim();
+    if (!body) {
+      return "Escreva uma mensagem.";
+    }
+    const { error } = await supabase.from("family_direct_messages").insert({
+      id: crypto.randomUUID(),
+      sender_household_id: appState.household.id,
+      recipient_household_id: targetFamily.id,
+      sender_resident_id: activeResident.id,
+      recipient_resident_id: targetResident.id,
+      message: body,
+    });
+    if (error) {
+      return error.message.toLowerCase().includes("family_direct_messages")
+        ? "Execute o SQL atualizado no Supabase primeiro."
+        : "Não foi possível enviar a mensagem.";
+    }
+    return null;
   }
 
   function enterHouseholdWithWelcome(remoteState: AppState, options: { fromAuth?: boolean } = {}) {
@@ -5041,7 +5071,7 @@ export default function HomePage() {
               <button
                 className="dashboard-card-add dashboard-card-play"
                 type="button"
-                disabled={!appState.activityEvents.length}
+                disabled={!activeActivityEvents.length}
                 onClick={(event) => {
                   event.stopPropagation();
                   setTimelineAutoPlay(true);
@@ -5055,10 +5085,10 @@ export default function HomePage() {
                 <History size={20} />
               </span>
               <small>Timeline</small>
-              <strong>{appState.activityEvents[0]?.title ?? "Tudo tranquilo"}</strong>
+              <strong>{activeActivityEvents[0]?.title ?? "Tudo tranquilo"}</strong>
               <em>
-                {appState.activityEvents[0]
-                  ? formatActivityRelativeTime(appState.activityEvents[0].createdAt)
+                {activeActivityEvents[0]
+                  ? formatActivityRelativeTime(activeActivityEvents[0].createdAt)
                   : "Os acontecimentos aparecem aqui"}
               </em>
             </article>
@@ -5219,7 +5249,7 @@ export default function HomePage() {
         {profileModal === "timeline" ? (
           <ActivityTimelineModal
             autoPlay={timelineAutoPlay}
-            events={appState.activityEvents}
+            events={activeActivityEvents}
             messages={activeDailyMessages}
             residents={appState.residents}
             onClose={() => {
@@ -5293,6 +5323,7 @@ export default function HomePage() {
             invites={familyConnectionInvites}
             onClose={() => setShowFamilyNetwork(false)}
             onInviteResponse={handleFamilyConnectionInvite}
+            onSendMessage={handleSendFamilyDirectMessage}
             onOpenFamily={(family) => {
               if (family.id === appState.household?.id) {
                 return;
@@ -5679,6 +5710,7 @@ function FamilyNetworkModal({
   onInviteResponse,
   onOpenFamily,
   onRequestConnection,
+  onSendMessage,
 }: {
   canManageConnections: boolean;
   currentHouseholdId: string;
@@ -5688,12 +5720,20 @@ function FamilyNetworkModal({
   onInviteResponse: (inviteId: string, accept: boolean) => void | Promise<void>;
   onOpenFamily: (family: FamilyNetworkItem) => void;
   onRequestConnection: (familyCode: string) => Promise<string | null>;
+  onSendMessage: (family: FamilyNetworkItem, resident: Resident, message: string) => Promise<string | null>;
 }) {
   const { backdropClassName, requestClose } = useModalClose(onClose);
   const [showConnector, setShowConnector] = useState(false);
   const [connectionCode, setConnectionCode] = useState("");
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [connectionError, setConnectionError] = useState("");
+  const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
+  const [messageResidentId, setMessageResidentId] = useState<string | null>(null);
+  const [directMessage, setDirectMessage] = useState("");
+  const [messageStatus, setMessageStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [messageError, setMessageError] = useState("");
+  const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; cameraX: number; cameraY: number; moved: boolean } | null>(null);
   const orderedFamilies = [
     ...families.filter((family) => family.id === currentHouseholdId),
     ...families.filter((family) => family.id !== currentHouseholdId),
@@ -5711,6 +5751,14 @@ function FamilyNetworkModal({
     };
   });
   const center = positions[0];
+  const selectedFamily = orderedFamilies.find((family) => family.id === selectedFamilyId) ?? null;
+
+  function zoomCamera(direction: number) {
+    setCamera((current) => ({
+      ...current,
+      scale: Math.min(1.8, Math.max(0.65, Number((current.scale + direction).toFixed(2)))),
+    }));
+  }
 
   return (
     <div className={backdropClassName}>
@@ -5818,7 +5866,46 @@ function FamilyNetworkModal({
             </form>
           ) : null}
         </div> : null}
-        <div className={`family-network-canvas ${orderedFamilies.length === 1 ? "family-network-single" : ""}`}>
+        <div
+          className={`family-network-canvas ${orderedFamilies.length === 1 ? "family-network-single" : ""} ${dragRef.current ? "dragging" : ""}`}
+          onPointerDown={(event) => {
+            if ((event.target as HTMLElement).closest("button, input, textarea")) return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            dragRef.current = {
+              pointerId: event.pointerId,
+              x: event.clientX,
+              y: event.clientY,
+              cameraX: camera.x,
+              cameraY: camera.y,
+              moved: false,
+            };
+          }}
+          onPointerMove={(event) => {
+            const drag = dragRef.current;
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            const deltaX = event.clientX - drag.x;
+            const deltaY = event.clientY - drag.y;
+            drag.moved ||= Math.abs(deltaX) + Math.abs(deltaY) > 5;
+            setCamera((current) => ({ ...current, x: drag.cameraX + deltaX, y: drag.cameraY + deltaY }));
+          }}
+          onPointerUp={(event) => {
+            if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+          }}
+          onWheel={(event) => {
+            event.preventDefault();
+            zoomCamera(event.deltaY < 0 ? 0.12 : -0.12);
+          }}
+        >
+          <div className="family-network-tools" aria-label="Controles do mapa">
+            <button type="button" onClick={() => zoomCamera(0.15)} aria-label="Aproximar">+</button>
+            <span>{Math.round(camera.scale * 100)}%</span>
+            <button type="button" onClick={() => zoomCamera(-0.15)} aria-label="Afastar">−</button>
+            <button type="button" onClick={() => setCamera({ x: 0, y: 0, scale: 1 })}>Centralizar</button>
+          </div>
+          <div
+            className="family-network-world"
+            style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})` }}
+          >
           <svg className="family-network-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             {center
               ? positions.slice(1).map((position) => {
@@ -5837,10 +5924,17 @@ function FamilyNetworkModal({
             const previews = family.residents.slice(0, 3);
             return (
               <button
-                className={`family-network-node ${index === 0 ? "current" : ""}`}
+                className={`family-network-node ${index === 0 ? "current" : ""} ${selectedFamilyId === family.id ? "selected" : ""}`}
                 key={family.id}
                 type="button"
-                onClick={() => onOpenFamily(family)}
+                onClick={() => {
+                  if (dragRef.current?.moved) return;
+                  setSelectedFamilyId((current) => current === family.id ? null : family.id);
+                  setMessageResidentId(null);
+                  setDirectMessage("");
+                  setMessageStatus("idle");
+                  setMessageError("");
+                }}
                 style={{ "--family-x": `${x}%`, "--family-y": `${y}%`, "--family-index": index } as CSSProperties}
                 aria-label={`${family.name}, ${family.residents.length} perfis`}
               >
@@ -5871,7 +5965,7 @@ function FamilyNetworkModal({
                   </span>
                 </span>
                 <strong>{family.name}</strong>
-                <small>{index === 0 ? "Família atual" : `${family.residents.length} perfis`}</small>
+                <small>{index === 0 ? "Família atual" : `${family.residents.length} pessoas`}</small>
               </button>
             );
           })}
@@ -5880,6 +5974,90 @@ function FamilyNetworkModal({
               <Users size={32} />
               <strong>Nenhuma família encontrada</strong>
             </div>
+          ) : null}
+          </div>
+          {selectedFamily ? (
+            <aside className="family-network-drawer" aria-label={`Pessoas da ${selectedFamily.name}`}>
+              <header>
+                <span><Users size={18} /></span>
+                <div>
+                  <small>Família selecionada</small>
+                  <strong>{selectedFamily.name}</strong>
+                </div>
+                <button type="button" onClick={() => setSelectedFamilyId(null)} aria-label="Fechar lista"><X size={16} /></button>
+              </header>
+              <div className="family-network-residents">
+                {selectedFamily.residents.map((resident) => (
+                  <article key={resident.id}>
+                    <span className="family-network-resident-avatar" style={{ backgroundColor: resident.color }}>
+                      {resident.photo ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={resident.photo} alt="" />
+                      ) : resident.name.slice(0, 1).toUpperCase()}
+                    </span>
+                    <span>
+                      <strong>{resident.name}</strong>
+                      <small>{resident.role}</small>
+                    </span>
+                    {selectedFamily.id !== currentHouseholdId ? (
+                      <button
+                        type="button"
+                        className="family-network-message-button"
+                        onClick={() => {
+                          setMessageResidentId(resident.id);
+                          setDirectMessage("");
+                          setMessageStatus("idle");
+                          setMessageError("");
+                        }}
+                        aria-label={`Enviar mensagem para ${resident.name}`}
+                      >
+                        <Send size={17} />
+                      </button>
+                    ) : <span />}
+                    {messageResidentId === resident.id ? (
+                      <form
+                        onSubmit={async (event) => {
+                          event.preventDefault();
+                          setMessageStatus("sending");
+                          setMessageError("");
+                          const error = await onSendMessage(selectedFamily, resident, directMessage);
+                          if (error) {
+                            setMessageError(error);
+                            setMessageStatus("idle");
+                            return;
+                          }
+                          setMessageStatus("sent");
+                          setDirectMessage("");
+                        }}
+                      >
+                        <textarea
+                          autoFocus
+                          maxLength={500}
+                          placeholder={`Mensagem para ${resident.name}`}
+                          value={directMessage}
+                          onChange={(event) => {
+                            setDirectMessage(event.target.value);
+                            setMessageStatus("idle");
+                          }}
+                        />
+                        <button type="submit" disabled={!directMessage.trim() || messageStatus === "sending"}>
+                          <Send size={15} />
+                          {messageStatus === "sending" ? "Enviando" : "Enviar"}
+                        </button>
+                        {messageError ? <small className="family-message-error">{messageError}</small> : null}
+                        {messageStatus === "sent" ? <small className="family-message-sent">Mensagem enviada.</small> : null}
+                      </form>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
+              {selectedFamily.id !== currentHouseholdId ? (
+                <button className="family-network-open-family" type="button" onClick={() => onOpenFamily(selectedFamily)}>
+                  Abrir acesso da família
+                  <ChevronRight size={16} />
+                </button>
+              ) : null}
+            </aside>
           ) : null}
         </div>
       </section>

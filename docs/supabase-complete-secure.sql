@@ -193,6 +193,23 @@ create unique index if not exists family_connection_requests_active_pair_idx
     greatest(requester_household_id, target_household_id)
   ) where status in ('pending', 'accepted');
 
+create table if not exists family_direct_messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_household_id uuid not null references households(id) on delete cascade,
+  recipient_household_id uuid not null references households(id) on delete cascade,
+  sender_resident_id uuid not null references residents(id) on delete cascade,
+  recipient_resident_id uuid not null references residents(id) on delete cascade,
+  message text not null check (char_length(message) between 1 and 500),
+  read_at timestamptz,
+  created_at timestamptz not null default now(),
+  check (sender_household_id <> recipient_household_id)
+);
+
+create index if not exists family_direct_messages_recipient_idx
+  on family_direct_messages (recipient_resident_id, created_at desc);
+create index if not exists family_direct_messages_sender_idx
+  on family_direct_messages (sender_resident_id, created_at desc);
+
 create table if not exists password_recovery_requests (
   id uuid primary key default gen_random_uuid(),
   household_id uuid not null references households(id) on delete cascade,
@@ -439,6 +456,7 @@ alter table activity_events enable row level security;
 alter table household_members enable row level security;
 alter table account_access enable row level security;
 alter table family_connection_requests enable row level security;
+alter table family_direct_messages enable row level security;
 alter table password_recovery_requests enable row level security;
 alter table household_join_requests enable row level security;
 
@@ -464,6 +482,7 @@ begin
         'household_members',
         'account_access',
         'family_connection_requests',
+        'family_direct_messages',
         'password_recovery_requests',
         'household_join_requests'
       ])
@@ -746,6 +765,32 @@ create policy family_connections_target_owner_update
   using (public.is_household_owner(target_household_id))
   with check (public.is_household_owner(target_household_id));
 
+create policy family_direct_messages_participant_select
+  on family_direct_messages for select to authenticated
+  using (
+    public.is_resident_account(sender_resident_id)
+    or public.is_resident_account(recipient_resident_id)
+  );
+
+create policy family_direct_messages_sender_insert
+  on family_direct_messages for insert to authenticated
+  with check (
+    public.is_resident_account(sender_resident_id)
+    and public.is_household_member(sender_household_id)
+    and public.is_household_connected(recipient_household_id)
+    and exists (
+      select 1
+      from residents recipient
+      where recipient.id = recipient_resident_id
+        and recipient.household_id = recipient_household_id
+    )
+  );
+
+create policy family_direct_messages_recipient_update
+  on family_direct_messages for update to authenticated
+  using (public.is_resident_account(recipient_resident_id))
+  with check (public.is_resident_account(recipient_resident_id));
+
 -- Pedidos sensíveis: acesso somente pelas rotas com service role.
 revoke all on household_invites from anon, authenticated;
 revoke all on password_recovery_requests from anon, authenticated;
@@ -763,6 +808,7 @@ grant select, insert, update, delete on activity_events to authenticated;
 grant select, insert on household_members to authenticated;
 grant select, insert, update on account_access to authenticated;
 grant select, insert, update on family_connection_requests to authenticated;
+grant select, insert, update on family_direct_messages to authenticated;
 
 commit;
 
@@ -844,6 +890,7 @@ begin
     'household_members',
     'account_access',
     'family_connection_requests',
+    'family_direct_messages',
     'password_recovery_requests',
     'household_join_requests'
   ]
@@ -869,6 +916,55 @@ update daily_messages
 set photo_url = null
 where photo_url is not null
   and char_length(photo_url) > 900000;
+
+-- ============================================================
+-- 8. LIMPEZA AUTOMÁTICA DOS STORIES APÓS 24 HORAS
+-- ============================================================
+
+create extension if not exists pg_cron with schema pg_catalog;
+
+create or replace function public.cleanup_expired_stories()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.activity_events event
+  using public.daily_messages message
+  where event.message_id = message.id
+    and message.expires_at <= now();
+
+  delete from public.daily_messages
+  where expires_at <= now();
+end;
+$$;
+
+revoke all on function public.cleanup_expired_stories() from public, anon, authenticated;
+
+do $$
+declare
+  existing_job_id bigint;
+begin
+  select jobid
+    into existing_job_id
+  from cron.job
+  where jobname = 'jtag-cleanup-expired-stories'
+  limit 1;
+
+  if existing_job_id is not null then
+    perform cron.unschedule(existing_job_id);
+  end if;
+end
+$$;
+
+select cron.schedule(
+  'jtag-cleanup-expired-stories',
+  '*/15 * * * *',
+  'select public.cleanup_expired_stories();'
+);
+
+select public.cleanup_expired_stories();
 
 -- ============================================================
 -- FIM
