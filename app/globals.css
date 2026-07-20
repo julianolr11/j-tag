@@ -974,6 +974,68 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   opacity: 0.72;
 }
 
+.auth-recovery-fields {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+}
+
+.auth-recovery-fields #auth-recovery-code {
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-align: center;
+}
+
+.recovery-requests-modal {
+  max-width: 520px;
+}
+
+.recovery-request-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.recovery-request-card {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.recovery-request-card > div:first-child,
+.recovery-generated-code {
+  display: grid;
+  gap: 3px;
+}
+
+.recovery-generated-code {
+  background: rgba(39, 174, 96, 0.12);
+  border: 1px solid rgba(39, 174, 96, 0.3);
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+}
+
+.recovery-generated-code strong {
+  font-size: 1.55rem;
+  letter-spacing: 0.22em;
+}
+
+.join-request-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.dashboard-card-join-requests {
+  position: relative;
+}
+
 .remember-access-check {
   align-items: center;
   background: rgba(255, 255, 255, 0.045);

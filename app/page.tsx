@@ -420,6 +420,22 @@ type HouseholdMemberRow = {
   role: "owner" | "member";
 };
 
+type PasswordRecoveryRequest = {
+  id: string;
+  accountId: string;
+  status: "pending" | "approved";
+  created_at: string;
+  expires_at?: string | null;
+};
+
+type HouseholdJoinRequest = {
+  id: string;
+  accountId: string;
+  household_id: string;
+  status: "pending";
+  created_at: string;
+};
+
 type HouseholdRow = {
   id: string;
   name: string;
@@ -2245,6 +2261,10 @@ export default function HomePage() {
   const [authUser, setAuthUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [passwordRecoveryActive, setPasswordRecoveryActive] = useState(false);
+  const [passwordRecoveryRequests, setPasswordRecoveryRequests] = useState<PasswordRecoveryRequest[]>([]);
+  const [showPasswordRecoveryRequests, setShowPasswordRecoveryRequests] = useState(false);
+  const [householdJoinRequests, setHouseholdJoinRequests] = useState<HouseholdJoinRequest[]>([]);
+  const [showHouseholdJoinRequests, setShowHouseholdJoinRequests] = useState(false);
   const [todayWeather, setTodayWeather] = useState<TodayWeather>(() => getDefaultWeather());
   const [isNightNow, setIsNightNow] = useState(() => isNightTime());
   const [dailyMessageNow, setDailyMessageNow] = useState(() => Date.now());
@@ -3274,9 +3294,9 @@ export default function HomePage() {
     }
 
     const normalizedFamilyCode = normalizeHouseholdCode(familyCode || pendingInviteCode);
-    if (mode === "sign-up") {
+    if (mode === "sign-up" && pendingInviteCode) {
       if (normalizedFamilyCode.length < 4) {
-        window.alert("Informe o código da família para criar sua conta.");
+        window.alert("Este convite não é mais válido.");
         return;
       }
       const invitedHousehold = await loadRemoteStateByCode(normalizedFamilyCode);
@@ -3363,13 +3383,123 @@ export default function HomePage() {
 
   async function handleRequestPasswordRecovery(accountId: string) {
     const response = await fetch("/api/account/recovery", {
-      body: JSON.stringify({ accountId: normalizeAccountId(accountId) }),
+      body: JSON.stringify({ action: "request", accountId: normalizeAccountId(accountId) }),
       headers: { "Content-Type": "application/json" },
       method: "POST",
     });
     const result = (await response.json().catch(() => ({}))) as { error?: string };
     return response.ok ? null : result.error ?? "Não foi possível enviar o pedido agora.";
   }
+
+  async function handleCompletePasswordRecovery(accountId: string, code: string, password: string) {
+    const response = await fetch("/api/account/recovery", {
+      body: JSON.stringify({ action: "complete", accountId: normalizeAccountId(accountId), code, password }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const result = (await response.json().catch(() => ({}))) as { error?: string };
+    return response.ok ? null : result.error ?? "Não foi possível alterar a senha agora.";
+  }
+
+  async function refreshPasswordRecoveryRequests() {
+    if (!supabase || !authUser) {
+      return;
+    }
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (!accessToken) {
+      return;
+    }
+    const response = await fetch("/api/account/recovery", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const result = (await response.json().catch(() => ({}))) as { requests?: PasswordRecoveryRequest[] };
+    if (response.ok) {
+      setPasswordRecoveryRequests(result.requests ?? []);
+    }
+  }
+
+  async function handleApprovePasswordRecovery(requestId: string) {
+    if (!supabase) {
+      return null;
+    }
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token;
+    if (!accessToken) {
+      return null;
+    }
+    const response = await fetch("/api/account/recovery", {
+      body: JSON.stringify({ requestId }),
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      method: "PATCH",
+    });
+    const result = (await response.json().catch(() => ({}))) as { code?: string; error?: string };
+    if (!response.ok || !result.code) {
+      window.alert(result.error ?? "Não foi possível aprovar o pedido.");
+      return null;
+    }
+    await refreshPasswordRecoveryRequests();
+    return result.code;
+  }
+
+  async function getCurrentAccessToken() {
+    if (!supabase) {
+      return "";
+    }
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? "";
+  }
+
+  async function refreshHouseholdJoinRequests() {
+    const accessToken = await getCurrentAccessToken();
+    if (!accessToken) {
+      return;
+    }
+    const response = await fetch("/api/household/join", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const result = (await response.json().catch(() => ({}))) as { incoming?: HouseholdJoinRequest[] };
+    if (response.ok) {
+      setHouseholdJoinRequests(result.incoming ?? []);
+    }
+  }
+
+  async function handleHouseholdJoinDecision(requestId: string, approve: boolean) {
+    const accessToken = await getCurrentAccessToken();
+    if (!accessToken) {
+      return "Sua sessão expirou.";
+    }
+    const response = await fetch("/api/household/join", {
+      body: JSON.stringify({ approve, requestId }),
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      method: "PATCH",
+    });
+    const result = (await response.json().catch(() => ({}))) as { error?: string };
+    if (response.ok) {
+      await refreshHouseholdJoinRequests();
+      return null;
+    }
+    return result.error ?? "Não foi possível responder à solicitação.";
+  }
+
+  useEffect(() => {
+    if (
+      authUser &&
+      activeResident &&
+      appState.household?.ownerResidentId === activeResident.id
+    ) {
+      void refreshPasswordRecoveryRequests();
+      void refreshHouseholdJoinRequests();
+      const refreshTimer = window.setInterval(() => {
+        void refreshPasswordRecoveryRequests();
+        void refreshHouseholdJoinRequests();
+      }, 30_000);
+      return () => window.clearInterval(refreshTimer);
+    } else {
+      setPasswordRecoveryRequests([]);
+      setHouseholdJoinRequests([]);
+    }
+  }, [activeResident?.id, appState.household?.id, appState.household?.ownerResidentId, authUser?.id]);
 
   async function handleAddAccountPassword(password: string) {
     if (!supabase) {
@@ -3530,15 +3660,37 @@ export default function HomePage() {
       return;
     }
 
+    const accessToken = await getCurrentAccessToken();
+    if (!accessToken) {
+      showAssistantMessage("Entre na sua conta antes de solicitar acesso.", false);
+      return;
+    }
+    const joinResponse = await fetch("/api/household/join", {
+      body: JSON.stringify({ code }),
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const joinResult = (await joinResponse.json().catch(() => ({}))) as {
+      error?: string;
+      status?: "pending" | "approved";
+    };
+    if (!joinResponse.ok) {
+      showAssistantMessage(joinResult.error ?? "Não foi possível solicitar entrada.", false);
+      return;
+    }
+    if (joinResult.status !== "approved") {
+      showAssistantMessage(
+        "Solicitação enviada ao dono da casa. Depois que ele aprovar, toque novamente em “Entrar na casa”.",
+      );
+      return;
+    }
+
     const remoteState = await loadRemoteStateByCode(code);
-    const household: Household =
-      remoteState?.household ?? {
-        id: crypto.randomUUID(),
-        name: `Lar ${code}`,
-        code,
-        createdAt: new Date().toISOString(),
-        joinedByCode: true,
-      };
+    if (!remoteState?.household) {
+      showAssistantMessage("Este convite não é mais válido.", false);
+      return;
+    }
+    const household = remoteState.household;
 
     if (preparedNewResidentPhoto) {
       const photoUrl = await uploadProfilePhoto(household.id, resident.id, preparedNewResidentPhoto);
@@ -3551,7 +3703,6 @@ export default function HomePage() {
 
     await insertRemoteResident(household.id, resident);
     if (authUser) {
-      await upsertRemoteHouseholdMember(household.id, authUser.id, "member");
       await refreshAccountHouseholds(authUser.id);
     }
     rememberHousehold(household);
@@ -4507,6 +4658,7 @@ export default function HomePage() {
 
         <AuthGate
           hasInvite={Boolean(pendingInviteCode)}
+          onCompletePasswordRecovery={handleCompletePasswordRecovery}
           onRequestPasswordRecovery={handleRequestPasswordRecovery}
           onSubmit={(mode, accountId, password, familyCode) =>
             void handleAuthSubmit(mode, accountId, password, familyCode)
@@ -4810,14 +4962,16 @@ export default function HomePage() {
               <strong>{dashboardBirthdays.next ? dashboardBirthdays.next.name : "Sem próximos"}</strong>
               <em>{dashboardBirthdays.next ? formatDistanceLabel(dashboardBirthdays.next.nextDistance) : "Adicionar data"}</em>
             </article>
-            <button className="dashboard-card" type="button" onClick={() => setShowHouseholdInvite(true)}>
-              <span className="dashboard-card-icon">
-                <UserRound size={20} />
-              </span>
-              <small>Moradores</small>
-              <strong>{appState.residents.length}</strong>
-              <em>{appState.residents.length === 1 ? "perfil na casa" : "perfis na casa"}</em>
-            </button>
+            {appState.household.ownerResidentId === activeResident.id ? (
+              <button className="dashboard-card" type="button" onClick={() => setShowHouseholdInvite(true)}>
+                <span className="dashboard-card-icon">
+                  <UserRound size={20} />
+                </span>
+                <small>Moradores e convites</small>
+                <strong>{appState.residents.length}</strong>
+                <em>Somente o dono administra</em>
+              </button>
+            ) : null}
             <button className="dashboard-card dashboard-card-families" type="button" onClick={() => setShowFamilyNetwork(true)}>
               {familyConnectionInvites.length ? (
                 <span className="family-card-invite-badge">{familyConnectionInvites.length}</span>
@@ -4877,6 +5031,43 @@ export default function HomePage() {
               <strong>{appState.emergencyContacts.length + 3}</strong>
               <em>contatos prontos</em>
             </button>
+            {appState.household.ownerResidentId === activeResident.id ? (
+              <button
+                className="dashboard-card dashboard-card-recovery"
+                type="button"
+                onClick={() => {
+                  setShowPasswordRecoveryRequests(true);
+                  void refreshPasswordRecoveryRequests();
+                }}
+              >
+                <span className="dashboard-card-icon">
+                  <KeyRound size={20} />
+                </span>
+                <small>Recuperar acesso</small>
+                <strong>{passwordRecoveryRequests.filter((request) => request.status === "pending").length}</strong>
+                <em>pedidos aguardando</em>
+              </button>
+            ) : null}
+            {appState.household.ownerResidentId === activeResident.id ? (
+              <button
+                className="dashboard-card dashboard-card-join-requests"
+                type="button"
+                onClick={() => {
+                  setShowHouseholdJoinRequests(true);
+                  void refreshHouseholdJoinRequests();
+                }}
+              >
+                {householdJoinRequests.length ? (
+                  <span className="family-card-invite-badge">{householdJoinRequests.length}</span>
+                ) : null}
+                <span className="dashboard-card-icon">
+                  <UserPlus size={20} />
+                </span>
+                <small>Pedidos de entrada</small>
+                <strong>{householdJoinRequests.length}</strong>
+                <em>aprovar ou recusar</em>
+              </button>
+            ) : null}
           </div>
 
           <div className="profile-action-row">
@@ -4897,6 +5088,20 @@ export default function HomePage() {
             onClose={() => setShowEmergency(false)}
             onPickDeviceContact={handlePickDeviceContact}
             onRemoveContact={handleRemoveEmergencyContact}
+          />
+        ) : null}
+        {showPasswordRecoveryRequests ? (
+          <PasswordRecoveryRequestsModal
+            requests={passwordRecoveryRequests}
+            onApprove={handleApprovePasswordRecovery}
+            onClose={() => setShowPasswordRecoveryRequests(false)}
+          />
+        ) : null}
+        {showHouseholdJoinRequests ? (
+          <HouseholdJoinRequestsModal
+            requests={householdJoinRequests}
+            onClose={() => setShowHouseholdJoinRequests(false)}
+            onDecision={handleHouseholdJoinDecision}
           />
         ) : null}
         {profileModal === "reminder" ? (
@@ -5006,7 +5211,7 @@ export default function HomePage() {
             }}
           />
         ) : null}
-      {showHouseholdInvite ? (
+      {showHouseholdInvite && appState.household.ownerResidentId === activeResident.id ? (
         <HouseholdInviteModal
           activeResidentId={activeResident.id}
           canManageMembers={appState.household.ownerResidentId === activeResident.id}
@@ -6262,11 +6467,13 @@ function LocationMapModal({
 
 function AuthGate({
   hasInvite,
+  onCompletePasswordRecovery,
   onRequestPasswordRecovery,
   onShowReleaseNotes,
   onSubmit,
 }: {
   hasInvite: boolean;
+  onCompletePasswordRecovery: (accountId: string, code: string, password: string) => Promise<string | null>;
   onRequestPasswordRecovery: (accountId: string) => Promise<string | null>;
   onShowReleaseNotes: () => void;
   onSubmit: (mode: "sign-in" | "sign-up", accountId: string, password: string, familyCode: string) => void;
@@ -6281,6 +6488,7 @@ function AuthGate({
   const [rememberAccess, setRememberAccess] = useState(true);
   const [recoveryStatus, setRecoveryStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [recoveryError, setRecoveryError] = useState("");
+  const [recoverySaved, setRecoverySaved] = useState(false);
   const isSignUp = mode === "sign-up";
 
   useEffect(() => {
@@ -6295,7 +6503,7 @@ function AuthGate({
     const emailValue = normalizeAccountId(email);
     const password = String(form.get("password") ?? "");
 
-    if (emailValue.length < 4 || password.length < 6 || (isSignUp && familyCode.length < 4)) {
+    if (emailValue.length < 4 || password.length < 6 || (isSignUp && hasInvite && familyCode.length < 4)) {
       return;
     }
 
@@ -6320,6 +6528,27 @@ function AuthGate({
     const error = await onRequestPasswordRecovery(accountId);
     setRecoveryStatus(error ? "idle" : "sent");
     setRecoveryError(error ?? "");
+  }
+
+  async function handleRecoveryCompletion() {
+    const code = document.querySelector<HTMLInputElement>("#auth-recovery-code")?.value.trim() ?? "";
+    const password = document.querySelector<HTMLInputElement>("#auth-recovery-password")?.value ?? "";
+    const confirmation =
+      document.querySelector<HTMLInputElement>("#auth-recovery-password-confirmation")?.value ?? "";
+    if (!/^\d{6}$/.test(code)) {
+      setRecoveryError("Digite o código de 6 números.");
+      return;
+    }
+    if (password.length < 6 || password !== confirmation) {
+      setRecoveryError(password.length < 6 ? "Use pelo menos 6 caracteres." : "As senhas não são iguais.");
+      return;
+    }
+    setRecoveryError("");
+    setRecoveryStatus("sending");
+    const error = await onCompletePasswordRecovery(normalizeAccountId(email), code, password);
+    setRecoveryStatus("sent");
+    setRecoveryError(error ?? "");
+    setRecoverySaved(!error);
   }
 
   return (
@@ -6412,9 +6641,33 @@ function AuthGate({
                 : "Esqueci minha senha"}
           </button>
         ) : null}
-        {recoveryStatus === "sent" ? (
+        {recoveryStatus === "sent" && !recoverySaved ? (
           <p className="auth-feedback auth-feedback-success" role="status">
-            Se o ID estiver vinculado a uma família, o responsável receberá as instruções no e-mail cadastrado.
+            Pedido enviado. Peça ao dono da casa para aprovar e informar o código temporário.
+          </p>
+        ) : null}
+        {recoveryStatus === "sent" && !recoverySaved ? (
+          <div className="auth-recovery-fields">
+            <div className="field">
+              <label htmlFor="auth-recovery-code">Código temporário</label>
+              <input id="auth-recovery-code" inputMode="numeric" maxLength={6} pattern="[0-9]{6}" placeholder="000000" />
+            </div>
+            <div className="field">
+              <label htmlFor="auth-recovery-password">Nova senha</label>
+              <input id="auth-recovery-password" minLength={6} type="password" />
+            </div>
+            <div className="field">
+              <label htmlFor="auth-recovery-password-confirmation">Confirmar nova senha</label>
+              <input id="auth-recovery-password-confirmation" minLength={6} type="password" />
+            </div>
+            <button className="secondary-action" onClick={() => void handleRecoveryCompletion()} type="button">
+              Alterar minha senha
+            </button>
+          </div>
+        ) : null}
+        {recoverySaved ? (
+          <p className="auth-feedback auth-feedback-success" role="status">
+            Senha alterada. Agora você já pode entrar.
           </p>
         ) : null}
         {recoveryError ? (
@@ -6422,7 +6675,7 @@ function AuthGate({
             {recoveryError}
           </p>
         ) : null}
-        {isSignUp ? (
+        {isSignUp && hasInvite ? (
           <div className="field">
             <label htmlFor="auth-family-code">Código da família</label>
             <div className="auth-family-code-field">
@@ -6449,6 +6702,147 @@ function AuthGate({
         </button>
       </form>
     </section>
+  );
+}
+
+function HouseholdJoinRequestsModal({
+  requests,
+  onClose,
+  onDecision,
+}: {
+  requests: HouseholdJoinRequest[];
+  onClose: () => void;
+  onDecision: (requestId: string, approve: boolean) => Promise<string | null>;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [respondingId, setRespondingId] = useState("");
+  const [error, setError] = useState("");
+
+  async function respond(requestId: string, approve: boolean) {
+    setRespondingId(requestId);
+    setError("");
+    const responseError = await onDecision(requestId, approve);
+    setRespondingId("");
+    setError(responseError ?? "");
+  }
+
+  return (
+    <div className={backdropClassName}>
+      <section className="dark-modal recovery-requests-modal" role="dialog" aria-modal="true">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <span className="modal-icon">
+          <UserPlus size={28} />
+        </span>
+        <p className="eyebrow">Administração da casa</p>
+        <h2>Pedidos de entrada</h2>
+        <p>Ter o código não libera o acesso. Você decide quem pode criar um perfil nesta casa.</p>
+        <div className="recovery-request-list">
+          {requests.length ? (
+            requests.map((request) => (
+              <article className="recovery-request-card" key={request.id}>
+                <div>
+                  <small>ID de acesso</small>
+                  <strong>{request.accountId}</strong>
+                </div>
+                <div className="join-request-actions">
+                  <button
+                    className="secondary-action"
+                    disabled={Boolean(respondingId)}
+                    onClick={() => void respond(request.id, false)}
+                    type="button"
+                  >
+                    Recusar
+                  </button>
+                  <button
+                    className="primary-action"
+                    disabled={Boolean(respondingId)}
+                    onClick={() => void respond(request.id, true)}
+                    type="button"
+                  >
+                    {respondingId === request.id ? "Respondendo…" : "Aprovar"}
+                  </button>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="family-network-empty">Nenhuma solicitação pendente.</p>
+          )}
+        </div>
+        {error ? <p className="auth-feedback auth-feedback-error">{error}</p> : null}
+      </section>
+    </div>
+  );
+}
+
+function PasswordRecoveryRequestsModal({
+  requests,
+  onApprove,
+  onClose,
+}: {
+  requests: PasswordRecoveryRequest[];
+  onApprove: (requestId: string) => Promise<string | null>;
+  onClose: () => void;
+}) {
+  const { backdropClassName, requestClose } = useModalClose(onClose);
+  const [generatedCodes, setGeneratedCodes] = useState<Record<string, string>>({});
+  const [approvingId, setApprovingId] = useState("");
+
+  async function approve(requestId: string) {
+    setApprovingId(requestId);
+    const code = await onApprove(requestId);
+    setApprovingId("");
+    if (code) {
+      setGeneratedCodes((current) => ({ ...current, [requestId]: code }));
+    }
+  }
+
+  return (
+    <div className={backdropClassName}>
+      <section className="dark-modal recovery-requests-modal" role="dialog" aria-modal="true">
+        <button className="close-button" type="button" onClick={requestClose} aria-label="Fechar">
+          <X size={20} />
+        </button>
+        <span className="modal-icon">
+          <KeyRound size={28} />
+        </span>
+        <p className="eyebrow">Segurança da família</p>
+        <h2>Pedidos de recuperação</h2>
+        <p>Aprove somente pedidos que você reconhece. O código vale por 15 minutos.</p>
+        <div className="recovery-request-list">
+          {requests.length ? (
+            requests.map((request) => (
+              <article className="recovery-request-card" key={request.id}>
+                <div>
+                  <small>ID de acesso</small>
+                  <strong>{request.accountId}</strong>
+                </div>
+                {generatedCodes[request.id] ? (
+                  <div className="recovery-generated-code" role="status">
+                    <small>Informe este código ao familiar</small>
+                    <strong>{generatedCodes[request.id]}</strong>
+                  </div>
+                ) : request.status === "pending" ? (
+                  <button
+                    className="secondary-action"
+                    disabled={approvingId === request.id}
+                    onClick={() => void approve(request.id)}
+                    type="button"
+                  >
+                    {approvingId === request.id ? "Aprovando…" : "Aprovar e gerar código"}
+                  </button>
+                ) : (
+                  <p>Código já aprovado. Se ele foi perdido, peça ao familiar para fazer um novo pedido.</p>
+                )}
+              </article>
+            ))
+          ) : (
+            <p className="family-network-empty">Nenhum pedido aguardando aprovação.</p>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -6802,8 +7196,8 @@ function HouseholdSetup({
               }}
             >
               <KeyRound size={24} />
-              <strong>Entrar com código</strong>
-              <span>Já recebi o código da casa de alguém.</span>
+              <strong>Solicitar entrada</strong>
+              <span>Tenho o código e quero pedir autorização ao dono.</span>
             </button>
           </div>
         ) : null}
@@ -6975,8 +7369,9 @@ function HouseholdInviteModal({
           <Users size={34} />
         </span>
         <div>
-          <p className="eyebrow">Código da casa</p>
+          <p className="eyebrow">Convite do responsável</p>
           <h2>{household.name}</h2>
+          <p>Este convite permite criar uma conta e um novo perfil nesta casa.</p>
         </div>
         <div className="household-code-card" aria-label={`Código ${household.code}`}>
           {household.code.split("").map((letter, index) => (
@@ -7002,7 +7397,7 @@ function HouseholdInviteModal({
         <div className="member-management">
           <div className="member-management-title">
             <strong>Membros da família</strong>
-            {canManageMembers ? <span>Você pode remover outros perfis.</span> : <span>Apenas o criador pode remover membros.</span>}
+            {canManageMembers ? <span>Somente você pode convidar ou remover perfis.</span> : null}
           </div>
           <div className="member-list">
             {residents.map((resident) => {

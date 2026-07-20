@@ -1,136 +1,209 @@
+import { createHash, randomInt } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const resendApiKey = process.env.RESEND_API_KEY;
-const recoveryEmailFrom = process.env.RECOVERY_EMAIL_FROM;
 const accountEmailDomain = "j-tag-indol.vercel.app";
 const genericSuccess = {
-  message: "Se o ID estiver vinculado a uma família, o responsável receberá as instruções.",
-};
-
-type Membership = {
-  household_id: string;
-  role: "owner" | "member";
+  message: "Se o ID estiver vinculado a uma família, o responsável verá o pedido.",
 };
 
 function isValidAccountId(value: string) {
   return /^[a-z0-9][a-z0-9._-]{2,30}[a-z0-9]$/.test(value);
 }
 
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (character) => {
-    const entities: Record<string, string> = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;",
-    };
-    return entities[character];
+function hashCode(requestId: string, code: string) {
+  return createHash("sha256").update(`${requestId}:${code}`).digest("hex");
+}
+
+function getAdminClient() {
+  if (!supabaseUrl || !supabaseServiceRoleKey) {
+    return null;
+  }
+  return createClient(supabaseUrl, supabaseServiceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
   });
 }
 
+async function getAuthenticatedUser(request: Request) {
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return null;
+  }
+  const authorization = request.headers.get("authorization");
+  const accessToken = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
+  if (!accessToken) {
+    return null;
+  }
+  const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data } = await authClient.auth.getUser(accessToken);
+  return data.user ?? null;
+}
+
 export async function POST(request: Request) {
-  if (!supabaseUrl || !supabaseServiceRoleKey || !resendApiKey || !recoveryEmailFrom) {
-    return NextResponse.json({ error: "Recuperação de acesso não configurada no servidor." }, { status: 503 });
+  const adminClient = getAdminClient();
+  if (!adminClient) {
+    return NextResponse.json({ error: "Recuperação temporariamente indisponível." }, { status: 503 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as { accountId?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    action?: "request" | "complete";
+    accountId?: string;
+    code?: string;
+    password?: string;
+  };
   const accountId = body.accountId?.trim().toLowerCase() ?? "";
   if (!isValidAccountId(accountId)) {
     return NextResponse.json({ error: "ID de acesso inválido." }, { status: 400 });
   }
 
-  const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
   const { data: targetAccess } = await adminClient
     .from("account_access")
     .select("user_id")
     .eq("handle", accountId)
     .maybeSingle();
+
+  if (body.action === "complete") {
+    if (!targetAccess?.user_id || !/^\d{6}$/.test(body.code ?? "") || (body.password?.length ?? 0) < 6) {
+      return NextResponse.json({ error: "Código inválido ou expirado." }, { status: 400 });
+    }
+    const { data: recoveryRequest } = await adminClient
+      .from("password_recovery_requests")
+      .select("id,code_hash,expires_at")
+      .eq("target_user_id", targetAccess.user_id)
+      .eq("status", "approved")
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!recoveryRequest || hashCode(recoveryRequest.id, body.code ?? "") !== recoveryRequest.code_hash) {
+      return NextResponse.json({ error: "Código inválido ou expirado." }, { status: 400 });
+    }
+
+    const { error: updateError } = await adminClient.auth.admin.updateUserById(targetAccess.user_id, {
+      password: body.password,
+    });
+    if (updateError) {
+      return NextResponse.json({ error: "Não foi possível alterar a senha agora." }, { status: 500 });
+    }
+    await adminClient
+      .from("password_recovery_requests")
+      .update({ code_hash: null, status: "completed", updated_at: new Date().toISOString() })
+      .eq("id", recoveryRequest.id);
+    return NextResponse.json({ message: "Senha alterada. Você já pode entrar." });
+  }
+
   if (!targetAccess?.user_id) {
     return NextResponse.json(genericSuccess);
   }
-
-  const { data: memberships } = await adminClient
+  const { data: membership } = await adminClient
     .from("household_members")
-    .select("household_id,role")
-    .eq("user_id", targetAccess.user_id);
-  const targetMemberships = (memberships ?? []) as Membership[];
-
-  let ownerEmail = "";
-  let householdName = "sua família";
-  for (const membership of targetMemberships) {
-    const { data: ownerMembership } = await adminClient
-      .from("household_members")
-      .select("user_id")
-      .eq("household_id", membership.household_id)
-      .eq("role", "owner")
-      .maybeSingle();
-    if (!ownerMembership?.user_id) {
-      continue;
-    }
-
-    const { data: ownerAccess } = await adminClient
-      .from("account_access")
-      .select("recovery_email")
-      .eq("user_id", ownerMembership.user_id)
-      .maybeSingle();
-    if (!ownerAccess?.recovery_email) {
-      continue;
-    }
-
-    const { data: household } = await adminClient
-      .from("households")
-      .select("name")
-      .eq("id", membership.household_id)
-      .maybeSingle();
-    ownerEmail = ownerAccess.recovery_email;
-    householdName = household?.name || householdName;
-    break;
-  }
-
-  if (!ownerEmail) {
+    .select("household_id")
+    .eq("user_id", targetAccess.user_id)
+    .limit(1)
+    .maybeSingle();
+  if (!membership?.household_id) {
     return NextResponse.json(genericSuccess);
   }
 
-  const origin = new URL(request.url).origin;
-  const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
-    email: `${accountId}@${accountEmailDomain}`,
-    options: { redirectTo: origin },
-    type: "recovery",
+  await adminClient
+    .from("password_recovery_requests")
+    .update({ status: "cancelled", updated_at: new Date().toISOString() })
+    .eq("target_user_id", targetAccess.user_id)
+    .in("status", ["pending", "approved"]);
+  const { error } = await adminClient.from("password_recovery_requests").insert({
+    household_id: membership.household_id,
+    target_user_id: targetAccess.user_id,
+    status: "pending",
   });
-  if (linkError || !linkData.properties?.action_link) {
-    console.error("Password recovery link generation failed", linkError);
-    return NextResponse.json({ error: "Não foi possível preparar a recuperação agora." }, { status: 500 });
+  if (error) {
+    console.error("Password recovery request failed", error);
+    return NextResponse.json({ error: "Não foi possível criar o pedido agora." }, { status: 500 });
   }
-
-  const emailResponse = await fetch("https://api.resend.com/emails", {
-    body: JSON.stringify({
-      from: recoveryEmailFrom,
-      html: [
-        `<p>Um administrador da família <strong>${escapeHtml(householdName)}</strong> pediu para recuperar o acesso.</p>`,
-        `<p>ID da conta: <strong>${escapeHtml(accountId)}</strong></p>`,
-        `<p><a href="${escapeHtml(linkData.properties.action_link)}">Criar uma nova senha</a></p>`,
-        "<p>Se você não reconhece o pedido, ignore esta mensagem.</p>",
-      ].join(""),
-      subject: `Recuperação de acesso — ${householdName}`,
-      to: [ownerEmail],
-    }),
-    headers: {
-      Authorization: `Bearer ${resendApiKey}`,
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
-
-  if (!emailResponse.ok) {
-    console.error("Password recovery email failed", emailResponse.status, await emailResponse.text());
-    return NextResponse.json({ error: "Não foi possível enviar o pedido agora." }, { status: 502 });
-  }
-
   return NextResponse.json(genericSuccess);
+}
+
+export async function GET(request: Request) {
+  const adminClient = getAdminClient();
+  const user = await getAuthenticatedUser(request);
+  if (!adminClient || !user) {
+    return NextResponse.json({ error: "Sessão inválida." }, { status: 401 });
+  }
+  const { data: ownedHouseholds } = await adminClient
+    .from("household_members")
+    .select("household_id")
+    .eq("user_id", user.id)
+    .eq("role", "owner");
+  const householdIds = (ownedHouseholds ?? []).map((item) => item.household_id);
+  if (!householdIds.length) {
+    return NextResponse.json({ requests: [] });
+  }
+  const { data: recoveryRequests, error } = await adminClient
+    .from("password_recovery_requests")
+    .select("id,household_id,target_user_id,status,created_at,expires_at")
+    .in("household_id", householdIds)
+    .in("status", ["pending", "approved"])
+    .order("created_at", { ascending: false });
+  if (error) {
+    return NextResponse.json({ error: "Não foi possível carregar os pedidos." }, { status: 500 });
+  }
+  const userIds = [...new Set((recoveryRequests ?? []).map((item) => item.target_user_id))];
+  const { data: accounts } = userIds.length
+    ? await adminClient.from("account_access").select("user_id,handle").in("user_id", userIds)
+    : { data: [] };
+  const handles = new Map((accounts ?? []).map((account) => [account.user_id, account.handle]));
+  return NextResponse.json({
+    requests: (recoveryRequests ?? []).map((item) => ({
+      ...item,
+      accountId: handles.get(item.target_user_id) ?? "conta",
+    })),
+  });
+}
+
+export async function PATCH(request: Request) {
+  const adminClient = getAdminClient();
+  const user = await getAuthenticatedUser(request);
+  if (!adminClient || !user) {
+    return NextResponse.json({ error: "Sessão inválida." }, { status: 401 });
+  }
+  const body = (await request.json().catch(() => ({}))) as { requestId?: string };
+  const { data: recoveryRequest } = await adminClient
+    .from("password_recovery_requests")
+    .select("id,household_id,status")
+    .eq("id", body.requestId ?? "")
+    .eq("status", "pending")
+    .maybeSingle();
+  if (!recoveryRequest) {
+    return NextResponse.json({ error: "Pedido não encontrado." }, { status: 404 });
+  }
+  const { data: ownerMembership } = await adminClient
+    .from("household_members")
+    .select("user_id")
+    .eq("household_id", recoveryRequest.household_id)
+    .eq("user_id", user.id)
+    .eq("role", "owner")
+    .maybeSingle();
+  if (!ownerMembership) {
+    return NextResponse.json({ error: "Somente o dono da casa pode aprovar." }, { status: 403 });
+  }
+
+  const code = String(randomInt(100000, 1000000));
+  const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
+  const { error } = await adminClient
+    .from("password_recovery_requests")
+    .update({
+      approved_by_user_id: user.id,
+      code_hash: hashCode(recoveryRequest.id, code),
+      expires_at: expiresAt,
+      status: "approved",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", recoveryRequest.id);
+  if (error) {
+    return NextResponse.json({ error: "Não foi possível aprovar o pedido." }, { status: 500 });
+  }
+  return NextResponse.json({ code, expiresAt });
 }
