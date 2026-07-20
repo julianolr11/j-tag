@@ -524,7 +524,7 @@ create policy residents_self_or_owner_update
     )
   )
   with check (
-    public.is_resident_account(id)
+    auth_user_id = auth.uid()
     or public.is_household_owner(household_id)
   );
 

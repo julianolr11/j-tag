@@ -273,6 +273,15 @@ function normalizeAccountId(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
 }
 
+function normalizeResidentName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
 function accountIdToTechnicalEmail(value: string) {
   return `${normalizeAccountId(value)}@${ACCOUNT_EMAIL_DOMAIN}`;
 }
@@ -1291,6 +1300,17 @@ async function updateRemoteResident(resident: Resident) {
   }
 
   return !error;
+}
+
+async function linkAccountToResident(residentId: string, userId: string) {
+  if (!supabase) {
+    return "Supabase não está configurado neste ambiente.";
+  }
+  const { error } = await supabase
+    .from("residents")
+    .update({ auth_user_id: userId })
+    .eq("id", residentId);
+  return error?.message ?? null;
 }
 
 async function insertRemoteReminder(householdId: string, reminder: Reminder) {
@@ -3668,9 +3688,9 @@ export default function HomePage() {
 
   async function handleJoinHousehold(codeValue: string, residentInput: StarterResidentInput) {
     const code = normalizeHouseholdCode(codeValue);
-    const resident = createResidentFromInput(residentInput, "Morador");
+    const newResident = createResidentFromInput(residentInput, "Morador");
 
-    if (code.length < 4 || !resident) {
+    if (code.length < 4 || !newResident) {
       return;
     }
 
@@ -3705,32 +3725,75 @@ export default function HomePage() {
       return;
     }
     const household = remoteState.household;
+    const normalizedName = normalizeResidentName(newResident.name);
+    const residentsWithSameName = remoteState.residents.filter(
+      (resident) => normalizeResidentName(resident.name) === normalizedName,
+    );
+    const residentByNameAndPin = residentsWithSameName.find((resident) => resident.pin === newResident.pin);
+    const residentsWithSamePin = remoteState.residents.filter((resident) => resident.pin === newResident.pin);
+    const existingResident =
+      residentByNameAndPin ??
+      (residentsWithSameName.length === 0 && residentsWithSamePin.length === 1 ? residentsWithSamePin[0] : null);
+
+    if (residentsWithSameName.length > 0 && !residentByNameAndPin) {
+      showAssistantMessage(
+        `O perfil ${residentsWithSameName[0].name} já existe. Confira o PIN para acessar sem criar outro perfil.`,
+        false,
+      );
+      return;
+    }
+
+    if (existingResident && authUser) {
+      const linkError = await linkAccountToResident(existingResident.id, authUser.id);
+      if (linkError) {
+        showAssistantMessage(
+          "Esse perfil já pode estar vinculado a outra conta. Peça ao dono da casa para verificar o acesso.",
+          false,
+        );
+        return;
+      }
+      await refreshAccountHouseholds(authUser.id);
+      rememberHousehold(household);
+      setRecentHouseholds(loadRecentHouseholds());
+      saveLastResident(existingResident.id);
+      runScreenTransition("enter", () => {
+        setAppState(remoteState);
+        setPendingInviteCode("");
+        setActiveResident(existingResident);
+        setNewResidentPhoto("");
+        if (preparedNewResidentPhoto) {
+          URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
+        }
+        setPreparedNewResidentPhoto(null);
+      });
+      return;
+    }
 
     if (preparedNewResidentPhoto) {
-      const photoUrl = await uploadProfilePhoto(household.id, resident.id, preparedNewResidentPhoto);
+      const photoUrl = await uploadProfilePhoto(household.id, newResident.id, preparedNewResidentPhoto);
       if (!photoUrl) {
         showAssistantMessage("Não foi possível enviar a foto do perfil.", false);
         return;
       }
-      resident.photo = photoUrl;
+      newResident.photo = photoUrl;
     }
 
-    await insertRemoteResident(household.id, resident, authUser?.id);
+    await insertRemoteResident(household.id, newResident, authUser?.id);
     if (authUser) {
       await refreshAccountHouseholds(authUser.id);
     }
     rememberHousehold(household);
     setRecentHouseholds(loadRecentHouseholds());
 
-    saveLastResident(resident.id);
+    saveLastResident(newResident.id);
     runScreenTransition("enter", () => {
       setAppState({
         ...(remoteState ?? defaultState),
         household,
-        residents: [...(remoteState?.residents ?? []), resident],
+        residents: [...(remoteState?.residents ?? []), newResident],
       });
       setPendingInviteCode("");
-      setActiveResident(resident);
+      setActiveResident(newResident);
       setNewResidentPhoto("");
       if (preparedNewResidentPhoto) {
         URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
@@ -7070,7 +7133,7 @@ function HouseholdSetup({
   const totalSteps = hasInviteLink ? 2 : finalStep;
   const stepTitle =
     hasInviteLink && step === 3
-      ? "Ingressar na família"
+      ? "Identifique seu perfil"
       : step === 1
       ? "Como você quer começar?"
       : step === 2
@@ -7078,11 +7141,13 @@ function HouseholdSetup({
           ? "Dê um nome para sua casa"
           : "Digite o código da casa"
         : step === 3
-          ? "Crie seu perfil"
+          ? isCreateMode
+            ? "Crie seu perfil"
+            : "Identifique seu perfil"
           : "Convide quem mora com você";
   const stepDescription =
     hasInviteLink && step === 3
-      ? "O convite já trouxe o código do lar. Crie seu perfil para entrar."
+      ? "Informe o mesmo nome e PIN se seu perfil já existe. Caso contrário, um perfil novo será criado após a aprovação."
       : step === 1
       ? "Escolha uma opção para preparar o acesso."
       : step === 2
@@ -7090,7 +7155,9 @@ function HouseholdSetup({
           ? "Esse nome aparece para todos os moradores."
           : "Use o código enviado por alguém da casa."
       : step === 3
-          ? "Esse PIN protege o perfil neste aparelho."
+          ? isCreateMode
+            ? "Esse PIN protege o perfil neste aparelho."
+            : "Se o perfil já existe, use o nome e o PIN dele para evitar duplicidade."
           : "Depois de finalizar, o código do lar fica pronto para compartilhar.";
   const canGoNext =
     step === 1 ||
