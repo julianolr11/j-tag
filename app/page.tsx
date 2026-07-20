@@ -5882,6 +5882,14 @@ function FamilyNetworkModal({
   const [selectedFamilyId, setSelectedFamilyId] = useState<string | null>(null);
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: 1 });
   const dragRef = useRef<{ pointerId: number; x: number; y: number; cameraX: number; cameraY: number; moved: boolean } | null>(null);
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{
+    distance: number;
+    centerX: number;
+    centerY: number;
+    camera: { x: number; y: number; scale: number };
+  } | null>(null);
+  const didMapGestureRef = useRef(false);
   const orderedFamilies = [
     ...families.filter((family) => family.id === currentHouseholdId),
     ...families.filter((family) => family.id !== currentHouseholdId),
@@ -6017,8 +6025,21 @@ function FamilyNetworkModal({
         <div
           className={`family-network-canvas ${orderedFamilies.length === 1 ? "family-network-single" : ""} ${dragRef.current ? "dragging" : ""}`}
           onPointerDown={(event) => {
-            if ((event.target as HTMLElement).closest("button, input, textarea")) return;
+            if ((event.target as HTMLElement).closest(".family-network-tools, .family-network-drawer, input, textarea")) return;
             event.currentTarget.setPointerCapture(event.pointerId);
+            pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (pointersRef.current.size >= 2) {
+              const [first, second] = Array.from(pointersRef.current.values());
+              pinchRef.current = {
+                distance: Math.hypot(second.x - first.x, second.y - first.y),
+                centerX: (first.x + second.x) / 2,
+                centerY: (first.y + second.y) / 2,
+                camera,
+              };
+              dragRef.current = null;
+              didMapGestureRef.current = true;
+              return;
+            }
             dragRef.current = {
               pointerId: event.pointerId,
               x: event.clientX,
@@ -6029,15 +6050,54 @@ function FamilyNetworkModal({
             };
           }}
           onPointerMove={(event) => {
+            if (!pointersRef.current.has(event.pointerId)) return;
+            pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+            if (pointersRef.current.size >= 2 && pinchRef.current) {
+              const [first, second] = Array.from(pointersRef.current.values());
+              const distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
+              const centerX = (first.x + second.x) / 2;
+              const centerY = (first.y + second.y) / 2;
+              const start = pinchRef.current;
+              const nextScale = Math.min(1.8, Math.max(0.65, start.camera.scale * (distance / start.distance)));
+              didMapGestureRef.current = true;
+              setCamera({
+                x: start.camera.x + centerX - start.centerX,
+                y: start.camera.y + centerY - start.centerY,
+                scale: Number(nextScale.toFixed(3)),
+              });
+              return;
+            }
             const drag = dragRef.current;
             if (!drag || drag.pointerId !== event.pointerId) return;
             const deltaX = event.clientX - drag.x;
             const deltaY = event.clientY - drag.y;
             drag.moved ||= Math.abs(deltaX) + Math.abs(deltaY) > 5;
+            if (drag.moved) didMapGestureRef.current = true;
             setCamera((current) => ({ ...current, x: drag.cameraX + deltaX, y: drag.cameraY + deltaY }));
           }}
           onPointerUp={(event) => {
+            pointersRef.current.delete(event.pointerId);
+            pinchRef.current = null;
             if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null;
+            const remaining = Array.from(pointersRef.current.entries())[0];
+            if (remaining) {
+              dragRef.current = {
+                pointerId: remaining[0],
+                x: remaining[1].x,
+                y: remaining[1].y,
+                cameraX: camera.x,
+                cameraY: camera.y,
+                moved: true,
+              };
+            } else {
+              window.setTimeout(() => { didMapGestureRef.current = false; }, 80);
+            }
+          }}
+          onPointerCancel={(event) => {
+            pointersRef.current.delete(event.pointerId);
+            pinchRef.current = null;
+            dragRef.current = null;
+            window.setTimeout(() => { didMapGestureRef.current = false; }, 80);
           }}
           onWheel={(event) => {
             event.preventDefault();
@@ -6076,7 +6136,7 @@ function FamilyNetworkModal({
                 key={family.id}
                 type="button"
                 onClick={() => {
-                  if (dragRef.current?.moved) return;
+                  if (didMapGestureRef.current) return;
                   setSelectedFamilyId((current) => current === family.id ? null : family.id);
                 }}
                 style={{ "--family-x": `${x}%`, "--family-y": `${y}%`, "--family-index": index } as CSSProperties}

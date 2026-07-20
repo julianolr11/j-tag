@@ -284,6 +284,96 @@ a {
   color: #8a4900;
 }
 
+.theme-blue-light .daily-message-composer > input {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(8, 71, 120, 0.34);
+  box-shadow: inset 0 1px 2px rgba(8, 71, 120, 0.06);
+  color: #061f33;
+}
+
+.theme-blue-light .daily-message-composer > input::placeholder {
+  color: #496b85;
+  opacity: 1;
+}
+
+.theme-blue-light .daily-message-composer > input:focus {
+  border-color: #126dc0;
+  box-shadow: 0 0 0 3px rgba(18, 109, 192, 0.16);
+}
+
+.theme-blue-light .daily-message-camera {
+  background: rgba(255, 255, 255, 0.88);
+  border-color: rgba(8, 71, 120, 0.26);
+  color: #126dc0;
+}
+
+.theme-blue-light .daily-message-send {
+  background: #126dc0;
+  border-color: #09518f;
+  color: #ffffff;
+}
+
+.theme-blue-light .family-connect-toggle {
+  background: #dceeff;
+  border-color: rgba(9, 81, 143, 0.32);
+  color: #09518f;
+  box-shadow: 0 7px 18px rgba(9, 81, 143, 0.1);
+}
+
+.theme-blue-light .family-network-canvas {
+  border-color: rgba(8, 71, 120, 0.3);
+}
+
+.theme-blue-light .family-network-tools span {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.theme-blue-light .dark-modal .family-network-node > strong {
+  color: #ffffff;
+  text-shadow: 0 2px 9px rgba(0, 0, 0, 0.72);
+}
+
+.theme-blue-light .dark-modal .family-network-node > small {
+  color: rgba(255, 255, 255, 0.76);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.72);
+}
+
+.theme-blue-light .dark-modal .family-network-drawer,
+.theme-blue-light .dark-modal .family-network-drawer header,
+.theme-blue-light .dark-modal .family-network-residents article {
+  color: #ffffff;
+}
+
+.theme-blue-light .dark-modal .family-network-drawer header strong,
+.theme-blue-light .dark-modal .family-network-residents article > span:nth-child(2) strong {
+  color: #ffffff;
+}
+
+.theme-blue-light .dark-modal .family-network-drawer header small,
+.theme-blue-light .dark-modal .family-network-residents article > span:nth-child(2) small {
+  color: rgba(230, 241, 255, 0.76);
+}
+
+.theme-blue-light .family-network-drawer > header > button {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.theme-blue-light .family-network-residents article {
+  background: rgba(255, 255, 255, 0.075);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.theme-blue-light .family-network-message-button {
+  background: #1681df;
+  box-shadow: 0 7px 16px rgba(22, 129, 223, 0.3);
+  color: #ffffff;
+}
+
+.theme-blue-light .family-network-open-family {
+  color: rgba(235, 245, 255, 0.82);
+}
+
 ::view-transition-group(app-screen) {
   animation-duration: 760ms;
   animation-timing-function: cubic-bezier(0.2, 0.9, 0.16, 1);
@@ -2729,7 +2819,7 @@ html:-webkit-full-screen .modal-backdrop {
   padding: 4px;
   position: absolute;
   top: 12px;
-  z-index: 8;
+  z-index: 6;
 }
 
 .family-network-tools button {
@@ -2888,7 +2978,7 @@ html:-webkit-full-screen .modal-backdrop {
   padding: 16px 13px;
   position: absolute;
   width: min(292px, 78%);
-  z-index: 7;
+  z-index: 9;
 }
 
 .family-network-drawer > header {
