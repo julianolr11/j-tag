@@ -5323,6 +5323,7 @@ export default function HomePage() {
           <FamilyNetworkModal
             canManageConnections={appState.household.ownerResidentId === activeResident.id}
             currentHouseholdId={appState.household.id}
+            currentResidentId={activeResident.id}
             families={familyNetworkItems}
             invites={familyConnectionInvites}
             onClose={() => setShowFamilyNetwork(false)}
@@ -5708,6 +5709,7 @@ function formatActivityRelativeTime(value: string) {
 function FamilyNetworkModal({
   canManageConnections,
   currentHouseholdId,
+  currentResidentId,
   families,
   invites,
   onClose,
@@ -5718,6 +5720,7 @@ function FamilyNetworkModal({
 }: {
   canManageConnections: boolean;
   currentHouseholdId: string;
+  currentResidentId: string;
   families: FamilyNetworkItem[];
   invites: FamilyConnectionInvite[];
   onClose: () => void;
@@ -6003,7 +6006,7 @@ function FamilyNetworkModal({
                       <strong>{resident.name}</strong>
                       <small>{resident.role}</small>
                     </span>
-                    {selectedFamily.id !== currentHouseholdId ? (
+                    {resident.id !== currentResidentId ? (
                       <button
                         type="button"
                         className="family-network-message-button"

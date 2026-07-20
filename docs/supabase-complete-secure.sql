@@ -201,9 +201,11 @@ create table if not exists family_direct_messages (
   recipient_resident_id uuid not null references residents(id) on delete cascade,
   message text not null check (char_length(message) between 1 and 500),
   read_at timestamptz,
-  created_at timestamptz not null default now(),
-  check (sender_household_id <> recipient_household_id)
+  created_at timestamptz not null default now()
 );
+
+alter table family_direct_messages
+  drop constraint if exists family_direct_messages_check;
 
 create index if not exists family_direct_messages_recipient_idx
   on family_direct_messages (recipient_resident_id, created_at desc);
@@ -797,7 +799,14 @@ create policy family_direct_messages_sender_insert
   with check (
     public.is_resident_account(sender_resident_id)
     and public.is_household_member(sender_household_id)
-    and public.is_household_connected(recipient_household_id)
+    and public.is_resident_in_household(
+      sender_resident_id,
+      sender_household_id
+    )
+    and (
+      recipient_household_id = sender_household_id
+      or public.is_household_connected(recipient_household_id)
+    )
     and public.is_resident_in_household(
       recipient_resident_id,
       recipient_household_id
