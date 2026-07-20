@@ -509,7 +509,13 @@ create policy residents_member_select
 create policy residents_member_or_bootstrap_insert
   on residents for insert to authenticated
   with check (
-    public.is_household_member(household_id)
+    (
+      public.is_household_member(household_id)
+      and (
+        auth_user_id = auth.uid()
+        or public.is_household_owner(household_id)
+      )
+    )
     or not public.household_has_members(household_id)
   );
 

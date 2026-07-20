@@ -64,6 +64,7 @@ type Resident = {
   color: string;
   theme?: ProfileThemeId;
   photo?: string;
+  authUserId?: string;
 };
 
 type Reminder = {
@@ -273,15 +274,6 @@ function normalizeAccountId(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9._-]/g, "");
 }
 
-function normalizeResidentName(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
 function accountIdToTechnicalEmail(value: string) {
   return `${normalizeAccountId(value)}@${ACCOUNT_EMAIL_DOMAIN}`;
 }
@@ -462,6 +454,7 @@ type ResidentRow = {
   color: string;
   photo_url: string | null;
   theme?: string | null;
+  auth_user_id?: string | null;
 };
 
 type ReminderRow = {
@@ -922,6 +915,7 @@ function mapResident(row: ResidentRow): Resident {
       row.photo_url && row.photo_url.length <= MAX_INLINE_STORY_PHOTO_LENGTH
         ? row.photo_url
         : undefined,
+    authUserId: row.auth_user_id ?? undefined,
   };
 }
 
@@ -1300,17 +1294,6 @@ async function updateRemoteResident(resident: Resident) {
   }
 
   return !error;
-}
-
-async function linkAccountToResident(residentId: string, userId: string) {
-  if (!supabase) {
-    return "Supabase não está configurado neste ambiente.";
-  }
-  const { error } = await supabase
-    .from("residents")
-    .update({ auth_user_id: userId })
-    .eq("id", residentId);
-  return error?.message ?? null;
 }
 
 async function insertRemoteReminder(householdId: string, reminder: Reminder) {
@@ -2248,6 +2231,7 @@ export default function HomePage() {
   const [activeResident, setActiveResident] = useState<Resident | null>(null);
   const [showSplash, setShowSplash] = useState(true);
   const [showNewResident, setShowNewResident] = useState(false);
+  const [showOwnProfileCreation, setShowOwnProfileCreation] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
   const [showHouseholdInvite, setShowHouseholdInvite] = useState(false);
   const [showFamilyNetwork, setShowFamilyNetwork] = useState(false);
@@ -2342,6 +2326,13 @@ export default function HomePage() {
       setAuthUser(user);
       setAccountHouseholds(userHouseholds);
       setAuthLoading(false);
+
+      if (!user) {
+        setAppState(defaultState);
+        setActiveResident(null);
+        setSelectedResident(null);
+        return;
+      }
 
       if (!remoteState) {
         return;
@@ -2870,7 +2861,7 @@ export default function HomePage() {
     householdJoinRequests,
     passwordRecoveryRequests,
   ]);
-  const quickAccessHouseholds = accountHouseholds.length ? accountHouseholds : recentHouseholds;
+  const quickAccessHouseholds = authUser ? accountHouseholds : [];
   const familyNetworkItems = useMemo<FamilyNetworkItem[]>(() => {
     const households = [...quickAccessHouseholds];
     if (appState.household && !households.some((household) => household.id === appState.household?.id)) {
@@ -2960,7 +2951,6 @@ export default function HomePage() {
       void supabase.removeChannel(channel);
     };
   }, [appState.household?.id]);
-  const hasLocalHouseholdAccess = Boolean(appState.household);
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
 
@@ -3297,11 +3287,6 @@ export default function HomePage() {
     await refreshCurrentFamilyConnections();
   }
 
-  function getPreferredResident(remoteState: AppState) {
-    const lastResidentId = window.localStorage.getItem(LAST_RESIDENT_KEY);
-    return remoteState.residents.find((resident) => resident.id === lastResidentId) ?? remoteState.residents[0] ?? null;
-  }
-
   function enterHouseholdWithWelcome(remoteState: AppState, options: { fromAuth?: boolean } = {}) {
     if (!remoteState.household) {
       return;
@@ -3311,7 +3296,6 @@ export default function HomePage() {
       window.clearTimeout(welcomeTimerRef.current);
     }
 
-    const preferredResident = getPreferredResident(remoteState);
     rememberHousehold(remoteState.household);
     setRecentHouseholds(loadRecentHouseholds());
     setPendingInviteCode("");
@@ -3324,10 +3308,8 @@ export default function HomePage() {
       welcomeTimerRef.current = window.setTimeout(() => {
         runScreenTransition("enter", () => {
           setAppState(remoteState);
-          setActiveResident(preferredResident);
-          if (preferredResident) {
-            saveLastResident(preferredResident.id);
-          }
+          setActiveResident(null);
+          setSelectedResident(null);
           setWelcomeHouseholdName("");
         });
       }, WELCOME_HOUSEHOLD_MS);
@@ -3686,18 +3668,17 @@ export default function HomePage() {
     });
   }
 
-  async function handleJoinHousehold(codeValue: string, residentInput: StarterResidentInput) {
+  async function handleJoinHousehold(codeValue: string) {
     const code = normalizeHouseholdCode(codeValue);
-    const newResident = createResidentFromInput(residentInput, "Morador");
 
-    if (code.length < 4 || !newResident) {
-      return;
+    if (code.length < 4) {
+      return "error" as const;
     }
 
     const accessToken = await getCurrentAccessToken();
     if (!accessToken) {
       showAssistantMessage("Entre na sua conta antes de solicitar acesso.", false);
-      return;
+      return "error" as const;
     }
     const joinResponse = await fetch("/api/household/join", {
       body: JSON.stringify({ code }),
@@ -3710,96 +3691,32 @@ export default function HomePage() {
     };
     if (!joinResponse.ok) {
       showAssistantMessage(joinResult.error ?? "Não foi possível solicitar entrada.", false);
-      return;
+      return "error" as const;
     }
     if (joinResult.status !== "approved") {
-      showAssistantMessage(
-        "Solicitação enviada ao dono da casa. Depois que ele aprovar, toque novamente em “Entrar na casa”.",
-      );
-      return;
+      return "pending" as const;
     }
 
     const remoteState = await loadRemoteStateByCode(code);
     if (!remoteState?.household) {
       showAssistantMessage("Este convite não é mais válido.", false);
-      return;
+      return "error" as const;
     }
     const household = remoteState.household;
-    const normalizedName = normalizeResidentName(newResident.name);
-    const residentsWithSameName = remoteState.residents.filter(
-      (resident) => normalizeResidentName(resident.name) === normalizedName,
-    );
-    const residentByNameAndPin = residentsWithSameName.find((resident) => resident.pin === newResident.pin);
-    const residentsWithSamePin = remoteState.residents.filter((resident) => resident.pin === newResident.pin);
-    const existingResident =
-      residentByNameAndPin ??
-      (residentsWithSameName.length === 0 && residentsWithSamePin.length === 1 ? residentsWithSamePin[0] : null);
-
-    if (residentsWithSameName.length > 0 && !residentByNameAndPin) {
-      showAssistantMessage(
-        `O perfil ${residentsWithSameName[0].name} já existe. Confira o PIN para acessar sem criar outro perfil.`,
-        false,
-      );
-      return;
-    }
-
-    if (existingResident && authUser) {
-      const linkError = await linkAccountToResident(existingResident.id, authUser.id);
-      if (linkError) {
-        showAssistantMessage(
-          "Esse perfil já pode estar vinculado a outra conta. Peça ao dono da casa para verificar o acesso.",
-          false,
-        );
-        return;
-      }
-      await refreshAccountHouseholds(authUser.id);
-      rememberHousehold(household);
-      setRecentHouseholds(loadRecentHouseholds());
-      saveLastResident(existingResident.id);
-      runScreenTransition("enter", () => {
-        setAppState(remoteState);
-        setPendingInviteCode("");
-        setActiveResident(existingResident);
-        setNewResidentPhoto("");
-        if (preparedNewResidentPhoto) {
-          URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
-        }
-        setPreparedNewResidentPhoto(null);
-      });
-      return;
-    }
-
-    if (preparedNewResidentPhoto) {
-      const photoUrl = await uploadProfilePhoto(household.id, newResident.id, preparedNewResidentPhoto);
-      if (!photoUrl) {
-        showAssistantMessage("Não foi possível enviar a foto do perfil.", false);
-        return;
-      }
-      newResident.photo = photoUrl;
-    }
-
-    await insertRemoteResident(household.id, newResident, authUser?.id);
     if (authUser) {
       await refreshAccountHouseholds(authUser.id);
     }
     rememberHousehold(household);
     setRecentHouseholds(loadRecentHouseholds());
-
-    saveLastResident(newResident.id);
     runScreenTransition("enter", () => {
-      setAppState({
-        ...(remoteState ?? defaultState),
-        household,
-        residents: [...(remoteState?.residents ?? []), newResident],
-      });
+      setAppState(remoteState);
       setPendingInviteCode("");
-      setActiveResident(newResident);
+      setActiveResident(null);
+      setSelectedResident(null);
       setNewResidentPhoto("");
-      if (preparedNewResidentPhoto) {
-        URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
-      }
       setPreparedNewResidentPhoto(null);
     });
+    return "approved" as const;
   }
 
   async function handleContinueHousehold(recentHousehold: RecentHousehold) {
@@ -3893,21 +3810,36 @@ export default function HomePage() {
     setPinError("");
   }
 
-  function validateResidentPin(nextPin: string, resident: Resident) {
+  async function validateResidentPin(nextPin: string, resident: Resident) {
     if (nextPin.length !== 4) {
       return;
     }
 
     const storedPin = String(resident.pin).trim().padStart(4, "0").slice(-4);
     if (nextPin === storedPin) {
-      saveLastResident(resident.id);
       if (supabase && authUser && !resident.id.startsWith("local-")) {
-        void supabase
-          .from("residents")
-          .update({ auth_user_id: authUser.id })
-          .eq("id", resident.id)
-          .is("auth_user_id", null);
+        if (resident.authUserId && resident.authUserId !== authUser.id) {
+          setPinError("Este perfil já está vinculado a outra conta.");
+          setPin("");
+          return;
+        }
+        if (!resident.authUserId) {
+          const { data, error } = await supabase
+            .from("residents")
+            .update({ auth_user_id: authUser.id })
+            .eq("id", resident.id)
+            .is("auth_user_id", null)
+            .select("id")
+            .maybeSingle();
+          if (error || !data) {
+            setPinError("Não foi possível vincular este perfil à sua conta.");
+            setPin("");
+            return;
+          }
+          resident = { ...resident, authUserId: authUser.id };
+        }
       }
+      saveLastResident(resident.id);
       runScreenTransition("enter", () => {
         setActiveResident(resident);
         setSelectedResident(null);
@@ -3927,7 +3859,7 @@ export default function HomePage() {
     const nextPin = value.replace(/\D/g, "").slice(0, 4);
     setPin(nextPin);
     if (nextPin.length === 4) {
-      validateResidentPin(nextPin, selectedResident);
+      void validateResidentPin(nextPin, selectedResident);
     }
   }
 
@@ -3978,6 +3910,48 @@ export default function HomePage() {
     }
     setPreparedNewResidentPhoto(null);
     setShowNewResident(false);
+  }
+
+  async function handleAddOwnResident(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!appState.household || !authUser) {
+      return;
+    }
+    const form = new FormData(event.currentTarget);
+    const resident: Resident | null = createResidentFromInput(
+      {
+        name: String(form.get("name") ?? ""),
+        role: String(form.get("role") ?? ""),
+        pin: String(form.get("pin") ?? ""),
+      },
+      "Morador",
+    );
+    if (!resident) {
+      return;
+    }
+    resident.authUserId = authUser.id;
+    if (preparedNewResidentPhoto) {
+      const photoUrl = await uploadProfilePhoto(appState.household.id, resident.id, preparedNewResidentPhoto);
+      if (!photoUrl) {
+        showAssistantMessage("Não foi possível enviar a foto do perfil.", false);
+        return;
+      }
+      resident.photo = photoUrl;
+    }
+    const inserted = await insertRemoteResident(appState.household.id, resident, authUser.id);
+    if (!inserted) {
+      showAssistantMessage("Não foi possível criar seu perfil.", false);
+      return;
+    }
+    saveLastResident(resident.id);
+    setAppState((current) => ({ ...current, residents: [...current.residents, resident] }));
+    setShowOwnProfileCreation(false);
+    setNewResidentPhoto("");
+    if (preparedNewResidentPhoto) {
+      URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
+    }
+    setPreparedNewResidentPhoto(null);
+    setActiveResident(resident);
   }
 
   async function handleAddReminder(event: FormEvent<HTMLFormElement>) {
@@ -4718,7 +4692,7 @@ export default function HomePage() {
     );
   }
 
-  if (!authUser && !hasLocalHouseholdAccess) {
+  if (!authUser) {
     return (
       <main className={screenShellClassName}>
         {showSplash ? (
@@ -5408,6 +5382,18 @@ export default function HomePage() {
               <strong>{resident.name}</strong>
             </button>
           ))}
+          {authUser && !appState.residents.some((resident) => resident.authUserId === authUser.id) ? (
+            <button
+              className="stream-profile add-profile"
+              type="button"
+              onClick={() => setShowOwnProfileCreation(true)}
+            >
+              <span className="avatar-frame avatar-empty">
+                <Plus size={42} />
+              </span>
+              <strong>Criar meu perfil</strong>
+            </button>
+          ) : null}
         </div>
 
         <button className="emergency-button fixed" type="button" onClick={() => setShowEmergency(true)}>
@@ -5423,6 +5409,29 @@ export default function HomePage() {
           resident={selectedResident}
           onClose={() => setSelectedResident(null)}
           onChange={handlePinInput}
+        />
+      ) : null}
+      {showOwnProfileCreation ? (
+        <NewResidentModal
+          photo={newResidentPhoto}
+          onClose={() => {
+            if (preparedNewResidentPhoto) {
+              URL.revokeObjectURL(preparedNewResidentPhoto.previewUrl);
+              setPreparedNewResidentPhoto(null);
+            }
+            setNewResidentPhoto("");
+            setShowOwnProfileCreation(false);
+          }}
+          onPhotoSelect={selectNewResidentAvatar}
+          onPhotoUpload={(file) =>
+            prepareResidentPhoto(
+              file,
+              preparedNewResidentPhoto,
+              setPreparedNewResidentPhoto,
+              setNewResidentPhoto,
+            )
+          }
+          onSubmit={handleAddOwnResident}
         />
       ) : null}
 
@@ -7112,14 +7121,14 @@ function HouseholdSetup({
   recentHouseholds: RecentHousehold[];
   onCreate: (householdName: string, resident: StarterResidentInput) => void;
   onContinue: (household: RecentHousehold) => void;
-  onJoin: (code: string, resident: StarterResidentInput) => void;
+  onJoin: (code: string) => Promise<"pending" | "approved" | "error">;
   onPhotoSelect: (photo: string) => void;
   onPhotoUpload: (file?: File) => void | Promise<void>;
   onShowReleaseNotes: () => void;
 }) {
   const hasInviteLink = Boolean(inviteCode);
   const [mode, setMode] = useState<"create" | "join">(inviteCode ? "join" : "create");
-  const [step, setStep] = useState(hasInviteLink ? 3 : 1);
+  const [step, setStep] = useState(hasInviteLink ? 2 : 1);
   const [householdName, setHouseholdName] = useState("");
   const [code, setCode] = useState(inviteCode);
   const [resident, setResident] = useState<StarterResidentInput>({
@@ -7127,13 +7136,14 @@ function HouseholdSetup({
     role: "",
     pin: "",
   });
+  const [joinStatus, setJoinStatus] = useState<"idle" | "requesting" | "pending">("idle");
   const isCreateMode = mode === "create";
-  const finalStep = isCreateMode ? 4 : 3;
-  const visibleStep = hasInviteLink ? Math.max(1, step - 2) : step;
-  const totalSteps = hasInviteLink ? 2 : finalStep;
+  const finalStep = isCreateMode ? 4 : 2;
+  const visibleStep = hasInviteLink ? 1 : step;
+  const totalSteps = hasInviteLink ? 1 : finalStep;
   const stepTitle =
-    hasInviteLink && step === 3
-      ? "Identifique seu perfil"
+    hasInviteLink && step === 2
+      ? "Solicite entrada na família"
       : step === 1
       ? "Como você quer começar?"
       : step === 2
@@ -7141,13 +7151,11 @@ function HouseholdSetup({
           ? "Dê um nome para sua casa"
           : "Digite o código da casa"
         : step === 3
-          ? isCreateMode
-            ? "Crie seu perfil"
-            : "Identifique seu perfil"
+          ? "Crie seu perfil"
           : "Convide quem mora com você";
   const stepDescription =
-    hasInviteLink && step === 3
-      ? "Informe o mesmo nome e PIN se seu perfil já existe. Caso contrário, um perfil novo será criado após a aprovação."
+    hasInviteLink && step === 2
+      ? "O código já está preenchido. Depois da aprovação, você verá os perfis salvos da casa."
       : step === 1
       ? "Escolha uma opção para preparar o acesso."
       : step === 2
@@ -7155,9 +7163,7 @@ function HouseholdSetup({
           ? "Esse nome aparece para todos os moradores."
           : "Use o código enviado por alguém da casa."
       : step === 3
-          ? isCreateMode
-            ? "Esse PIN protege o perfil neste aparelho."
-            : "Se o perfil já existe, use o nome e o PIN dele para evitar duplicidade."
+          ? "Esse PIN protege o perfil neste aparelho."
           : "Depois de finalizar, o código do lar fica pronto para compartilhar.";
   const canGoNext =
     step === 1 ||
@@ -7174,16 +7180,18 @@ function HouseholdSetup({
   }
 
   function goBack() {
-    setStep((current) => Math.max(current - 1, hasInviteLink ? 3 : 1));
+    setStep((current) => Math.max(current - 1, hasInviteLink ? 2 : 1));
   }
 
-  function handleFinish() {
+  async function handleFinish() {
     if (isCreateMode) {
       onCreate(householdName, resident);
       return;
     }
 
-    onJoin(code, resident);
+    setJoinStatus("requesting");
+    const result = await onJoin(code);
+    setJoinStatus(result === "pending" ? "pending" : "idle");
   }
 
   function updateResident(field: keyof StarterResidentInput, value: string) {
@@ -7287,15 +7295,23 @@ function HouseholdSetup({
                   inputMode="text"
                   placeholder="Ex: A7K2P9"
                   value={code}
-                  onChange={(event) => setCode(normalizeHouseholdCode(event.target.value))}
+                  onChange={(event) => {
+                    setCode(normalizeHouseholdCode(event.target.value));
+                    setJoinStatus("idle");
+                  }}
                   required
                 />
               )}
             </div>
+            {!isCreateMode && joinStatus === "pending" ? (
+              <p className="auth-feedback auth-feedback-success" role="status">
+                Pedido enviado. Depois que o dono aprovar, volte aqui e toque em “Verificar aprovação”.
+              </p>
+            ) : null}
           </div>
         ) : null}
 
-        {step === 3 ? (
+        {step === 3 && isCreateMode ? (
           <ResidentStarterFields
             photo={photo}
             resident={resident}
@@ -7319,7 +7335,7 @@ function HouseholdSetup({
         ) : null}
 
         <div className="setup-nav">
-          {step > (hasInviteLink ? 3 : 1) ? (
+          {step > (hasInviteLink ? 2 : 1) ? (
             <button className="secondary-action" type="button" onClick={goBack}>
               <ChevronLeft size={18} />
               Voltar
@@ -7331,9 +7347,20 @@ function HouseholdSetup({
               <ChevronRight size={18} />
             </button>
           ) : (
-            <button className="primary-action" type="button" onClick={handleFinish} disabled={!canGoNext}>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={() => void handleFinish()}
+              disabled={!canGoNext || joinStatus === "requesting"}
+            >
               <Check size={18} />
-              {isCreateMode ? "Finalizar e gerar convite" : hasInviteLink ? "Ingressar na família" : "Entrar no lar"}
+              {isCreateMode
+                ? "Finalizar e gerar convite"
+                : joinStatus === "requesting"
+                  ? "Verificando…"
+                  : joinStatus === "pending"
+                    ? "Verificar aprovação"
+                    : "Solicitar entrada"}
             </button>
           )}
         </div>
