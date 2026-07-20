@@ -372,6 +372,24 @@ as $$
   );
 $$;
 
+create or replace function public.is_resident_in_household(
+  target_resident_id uuid,
+  target_household_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from residents resident
+    where resident.id = target_resident_id
+      and resident.household_id = target_household_id
+  );
+$$;
+
 create or replace function public.household_has_members(target_household_id uuid)
 returns boolean
 language sql
@@ -413,11 +431,13 @@ $$;
 revoke all on function public.is_household_member(uuid) from public;
 revoke all on function public.is_household_owner(uuid) from public;
 revoke all on function public.is_resident_account(uuid) from public;
+revoke all on function public.is_resident_in_household(uuid, uuid) from public;
 revoke all on function public.household_has_members(uuid) from public;
 revoke all on function public.is_household_connected(uuid) from public;
 grant execute on function public.is_household_member(uuid) to authenticated;
 grant execute on function public.is_household_owner(uuid) to authenticated;
 grant execute on function public.is_resident_account(uuid) to authenticated;
+grant execute on function public.is_resident_in_household(uuid, uuid) to authenticated;
 grant execute on function public.household_has_members(uuid) to authenticated;
 grant execute on function public.is_household_connected(uuid) to authenticated;
 
@@ -778,11 +798,9 @@ create policy family_direct_messages_sender_insert
     public.is_resident_account(sender_resident_id)
     and public.is_household_member(sender_household_id)
     and public.is_household_connected(recipient_household_id)
-    and exists (
-      select 1
-      from residents recipient
-      where recipient.id = recipient_resident_id
-        and recipient.household_id = recipient_household_id
+    and public.is_resident_in_household(
+      recipient_resident_id,
+      recipient_household_id
     )
   );
 
@@ -930,6 +948,8 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Apaga primeiro o evento da timeline para ele não continuar aparecendo
+  -- depois que a mensagem vinculada vencer.
   delete from public.activity_events event
   using public.daily_messages message
   where event.message_id = message.id
@@ -942,6 +962,7 @@ $$;
 
 revoke all on function public.cleanup_expired_stories() from public, anon, authenticated;
 
+-- Remove uma agenda antiga com o mesmo nome antes de recriá-la.
 do $$
 declare
   existing_job_id bigint;
@@ -964,6 +985,7 @@ select cron.schedule(
   'select public.cleanup_expired_stories();'
 );
 
+-- Executa uma limpeza imediata ao instalar/atualizar este script.
 select public.cleanup_expired_stories();
 
 -- ============================================================

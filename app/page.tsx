@@ -3310,9 +3310,13 @@ export default function HomePage() {
       message: body,
     });
     if (error) {
-      return error.message.toLowerCase().includes("family_direct_messages")
-        ? "Execute o SQL atualizado no Supabase primeiro."
-        : "Não foi possível enviar a mensagem.";
+      if (error.code === "42P01") {
+        return "A tabela de mensagens ainda não existe. Execute o SQL atualizado no Supabase.";
+      }
+      if (error.code === "42501") {
+        return "O Supabase bloqueou o envio. Execute novamente o SQL atualizado para corrigir a permissão.";
+      }
+      return "Não foi possível enviar a mensagem. Tente novamente.";
     }
     return null;
   }
