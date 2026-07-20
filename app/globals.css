@@ -969,6 +969,15 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   text-underline-offset: 0.2rem;
 }
 
+.auth-recovery-actions {
+  display: grid;
+  gap: 4px;
+}
+
+.auth-recovery-actions .auth-recovery-action {
+  justify-self: center;
+}
+
 .auth-recovery-action:disabled {
   cursor: default;
   opacity: 0.72;

@@ -255,6 +255,18 @@ const MAX_STORY_UPLOAD_BYTES = 1_400_000;
 const DISMISSED_NOTIFICATIONS_KEY = "jtag-dismissed-notifications-v1";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const persistentAuthStorage = {
+  getItem(key: string) {
+    if (typeof window === "undefined") return null;
+    return window.localStorage.getItem(key);
+  },
+  removeItem(key: string) {
+    if (typeof window !== "undefined") window.localStorage.removeItem(key);
+  },
+  setItem(key: string, value: string) {
+    if (typeof window !== "undefined") window.localStorage.setItem(key, value);
+  },
+};
 const supabase =
   SUPABASE_URL && SUPABASE_KEY
     ? createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -262,6 +274,7 @@ const supabase =
           autoRefreshToken: true,
           detectSessionInUrl: true,
           persistSession: true,
+          storage: persistentAuthStorage,
           storageKey: "jtag-auth-session-v1",
         },
       })
@@ -2340,7 +2353,15 @@ export default function HomePage() {
 
     async function hydrateRemoteState() {
       const sessionResult = supabase ? await supabase.auth.getSession() : null;
-      const user = sessionResult?.data.session?.user ?? null;
+      let session = sessionResult?.data.session ?? null;
+      if (supabase && session) {
+        const expiresSoon = (session.expires_at ?? 0) * 1000 < Date.now() + 60_000;
+        if (expiresSoon) {
+          const refreshed = await supabase.auth.refreshSession();
+          session = refreshed.data.session ?? session;
+        }
+      }
+      const user = session?.user ?? null;
       const userHouseholds = user ? await loadAccountHouseholds(user.id) : [];
       const defaultAccountHousehold = !storedState.household && !inviteCode && userHouseholds.length === 1
         ? userHouseholds[0]
@@ -3452,6 +3473,7 @@ export default function HomePage() {
     accountId: string,
     password: string,
     familyCode = "",
+    rememberAccess = true,
   ) {
     if (!supabase) {
       window.alert("Supabase não está configurado neste ambiente.");
@@ -3485,6 +3507,9 @@ export default function HomePage() {
     }
 
     if (data.user) {
+      if (rememberAccess && "storage" in navigator && "persist" in navigator.storage) {
+        void navigator.storage.persist();
+      }
       setAuthUser(data.user);
       if (mode === "sign-up") {
         const handle = normalizeAccountId(accountId);
@@ -4838,8 +4863,8 @@ export default function HomePage() {
           hasInvite={Boolean(pendingInviteCode)}
           onCompletePasswordRecovery={handleCompletePasswordRecovery}
           onRequestPasswordRecovery={handleRequestPasswordRecovery}
-          onSubmit={(mode, accountId, password, familyCode) =>
-            void handleAuthSubmit(mode, accountId, password, familyCode)
+          onSubmit={(mode, accountId, password, familyCode, rememberAccess) =>
+            void handleAuthSubmit(mode, accountId, password, familyCode, rememberAccess)
           }
           onShowReleaseNotes={() => setShowReleaseNotes(true)}
         />
@@ -6902,7 +6927,13 @@ function AuthGate({
   onCompletePasswordRecovery: (accountId: string, code: string, password: string) => Promise<string | null>;
   onRequestPasswordRecovery: (accountId: string) => Promise<string | null>;
   onShowReleaseNotes: () => void;
-  onSubmit: (mode: "sign-in" | "sign-up", accountId: string, password: string, familyCode: string) => void;
+  onSubmit: (
+    mode: "sign-in" | "sign-up",
+    accountId: string,
+    password: string,
+    familyCode: string,
+    rememberAccess: boolean,
+  ) => void;
 }) {
   const [mode, setMode] = useState<"sign-in" | "sign-up">(hasInvite ? "sign-up" : "sign-in");
   const [email, setEmail] = useState("");
@@ -6915,6 +6946,7 @@ function AuthGate({
   const [recoveryStatus, setRecoveryStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [recoveryError, setRecoveryError] = useState("");
   const [recoverySaved, setRecoverySaved] = useState(false);
+  const [showRecoveryFields, setShowRecoveryFields] = useState(false);
   const isSignUp = mode === "sign-up";
 
   useEffect(() => {
@@ -6939,7 +6971,7 @@ function AuthGate({
     } else {
       window.localStorage.removeItem(LAST_AUTH_ID_KEY);
     }
-    onSubmit(mode, emailValue, password, familyCode);
+    onSubmit(mode, emailValue, password, familyCode, rememberAccess);
   }
 
   async function handlePasswordRecovery() {
@@ -6954,6 +6986,9 @@ function AuthGate({
     const error = await onRequestPasswordRecovery(accountId);
     setRecoveryStatus(error ? "idle" : "sent");
     setRecoveryError(error ?? "");
+    if (!error) {
+      setShowRecoveryFields(true);
+    }
   }
 
   async function handleRecoveryCompletion() {
@@ -7054,25 +7089,37 @@ function AuthGate({
           />
         </div>
         {!isSignUp ? (
-          <button
-            className="auth-recovery-action"
-            disabled={recoveryStatus === "sending" || recoveryStatus === "sent"}
-            onClick={() => void handlePasswordRecovery()}
-            type="button"
-          >
-            {recoveryStatus === "sending"
-              ? "Enviando pedido…"
-              : recoveryStatus === "sent"
-                ? "Pedido enviado ao responsável"
-                : "Esqueci minha senha"}
-          </button>
+          <div className="auth-recovery-actions">
+            <button
+              className="auth-recovery-action"
+              disabled={recoveryStatus === "sending" || recoveryStatus === "sent"}
+              onClick={() => void handlePasswordRecovery()}
+              type="button"
+            >
+              {recoveryStatus === "sending"
+                ? "Enviando pedido…"
+                : recoveryStatus === "sent"
+                  ? "Pedido enviado ao responsável"
+                  : "Esqueci minha senha"}
+            </button>
+            <button
+              className="auth-recovery-action"
+              onClick={() => {
+                setShowRecoveryFields((current) => !current);
+                setRecoveryError("");
+              }}
+              type="button"
+            >
+              {showRecoveryFields ? "Ocultar código temporário" : "Já tenho um código temporário"}
+            </button>
+          </div>
         ) : null}
         {recoveryStatus === "sent" && !recoverySaved ? (
           <p className="auth-feedback auth-feedback-success" role="status">
             Pedido enviado. Peça ao dono da casa para aprovar e informar o código temporário.
           </p>
         ) : null}
-        {recoveryStatus === "sent" && !recoverySaved ? (
+        {showRecoveryFields && !recoverySaved ? (
           <div className="auth-recovery-fields">
             <div className="field">
               <label htmlFor="auth-recovery-code">Código temporário</label>
