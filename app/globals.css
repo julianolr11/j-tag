@@ -953,6 +953,27 @@ html[data-transition="soft"]::view-transition-new(app-screen) {
   margin-bottom: 2px;
 }
 
+.auth-recovery-action {
+  align-self: flex-start;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: #b9b9b9;
+  cursor: pointer;
+  font-family: var(--font-poppins), sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-top: -0.35rem;
+  padding: 0.15rem 0;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.auth-recovery-action:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
 .remember-access-check {
   align-items: center;
   background: rgba(255, 255, 255, 0.045);

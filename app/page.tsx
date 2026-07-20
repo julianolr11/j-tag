@@ -3361,6 +3361,16 @@ export default function HomePage() {
     return error?.message ?? null;
   }
 
+  async function handleRequestPasswordRecovery(accountId: string) {
+    const response = await fetch("/api/account/recovery", {
+      body: JSON.stringify({ accountId: normalizeAccountId(accountId) }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const result = (await response.json().catch(() => ({}))) as { error?: string };
+    return response.ok ? null : result.error ?? "Não foi possível enviar o pedido agora.";
+  }
+
   async function handleAddAccountPassword(password: string) {
     if (!supabase) {
       return "Supabase não está configurado neste ambiente.";
@@ -4497,6 +4507,7 @@ export default function HomePage() {
 
         <AuthGate
           hasInvite={Boolean(pendingInviteCode)}
+          onRequestPasswordRecovery={handleRequestPasswordRecovery}
           onSubmit={(mode, accountId, password, familyCode) =>
             void handleAuthSubmit(mode, accountId, password, familyCode)
           }
@@ -6251,10 +6262,12 @@ function LocationMapModal({
 
 function AuthGate({
   hasInvite,
+  onRequestPasswordRecovery,
   onShowReleaseNotes,
   onSubmit,
 }: {
   hasInvite: boolean;
+  onRequestPasswordRecovery: (accountId: string) => Promise<string | null>;
   onShowReleaseNotes: () => void;
   onSubmit: (mode: "sign-in" | "sign-up", accountId: string, password: string, familyCode: string) => void;
 }) {
@@ -6266,6 +6279,8 @@ function AuthGate({
       : normalizeHouseholdCode(new URLSearchParams(window.location.search).get("lar") ?? ""),
   );
   const [rememberAccess, setRememberAccess] = useState(true);
+  const [recoveryStatus, setRecoveryStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [recoveryError, setRecoveryError] = useState("");
   const isSignUp = mode === "sign-up";
 
   useEffect(() => {
@@ -6291,6 +6306,20 @@ function AuthGate({
       window.localStorage.removeItem(LAST_AUTH_ID_KEY);
     }
     onSubmit(mode, emailValue, password, familyCode);
+  }
+
+  async function handlePasswordRecovery() {
+    const accountId = normalizeAccountId(email);
+    if (accountId.length < 4) {
+      setRecoveryError("Digite seu ID de acesso primeiro.");
+      return;
+    }
+
+    setRecoveryError("");
+    setRecoveryStatus("sending");
+    const error = await onRequestPasswordRecovery(accountId);
+    setRecoveryStatus(error ? "idle" : "sent");
+    setRecoveryError(error ?? "");
   }
 
   return (
@@ -6369,6 +6398,30 @@ function AuthGate({
             required
           />
         </div>
+        {!isSignUp ? (
+          <button
+            className="auth-recovery-action"
+            disabled={recoveryStatus === "sending" || recoveryStatus === "sent"}
+            onClick={() => void handlePasswordRecovery()}
+            type="button"
+          >
+            {recoveryStatus === "sending"
+              ? "Enviando pedido…"
+              : recoveryStatus === "sent"
+                ? "Pedido enviado ao responsável"
+                : "Esqueci minha senha"}
+          </button>
+        ) : null}
+        {recoveryStatus === "sent" ? (
+          <p className="auth-feedback auth-feedback-success" role="status">
+            Se o ID estiver vinculado a uma família, o responsável receberá as instruções no e-mail cadastrado.
+          </p>
+        ) : null}
+        {recoveryError ? (
+          <p className="auth-feedback auth-feedback-error" role="alert">
+            {recoveryError}
+          </p>
+        ) : null}
         {isSignUp ? (
           <div className="field">
             <label htmlFor="auth-family-code">Código da família</label>
