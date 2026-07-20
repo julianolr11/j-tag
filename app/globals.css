@@ -6952,6 +6952,89 @@ html:fullscreen body {
   color: rgba(8, 32, 51, 0.46);
 }
 
+.theme-blue-light .dark-modal.direct-message-modal {
+  background:
+    radial-gradient(circle at 88% 0%, rgba(56, 189, 248, 0.18), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #eef8ff 100%);
+  border-color: rgba(8, 71, 120, 0.28);
+}
+
+.theme-blue-light .direct-message-header {
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom-color: rgba(8, 71, 120, 0.2);
+  box-shadow: 0 8px 24px rgba(31, 91, 138, 0.08);
+}
+
+.theme-blue-light .direct-message-header > button {
+  background: #d8edfc;
+  border: 1px solid rgba(8, 71, 120, 0.22);
+  border-radius: 50%;
+  color: #073b64;
+  height: 38px;
+  width: 38px;
+}
+
+.theme-blue-light .direct-message-header > svg {
+  color: #1467a8;
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-header strong {
+  color: #061f33;
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-header small {
+  color: #466a86;
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-thread article.mine {
+  background: linear-gradient(145deg, #126dc0, #09518f);
+  box-shadow: 0 8px 20px rgba(9, 81, 143, 0.2);
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-thread article.mine p {
+  color: #ffffff;
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-thread article.mine small {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-thread article.theirs {
+  background: #d8eaf7;
+  border: 1px solid rgba(8, 71, 120, 0.14);
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-thread article.theirs p {
+  color: #071f32;
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-thread article.theirs small {
+  color: #496b85;
+}
+
+.theme-blue-light .direct-message-composer {
+  background: #d9e8f2;
+  border-top-color: rgba(8, 71, 120, 0.22);
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-composer textarea {
+  background: #ffffff;
+  border-color: rgba(8, 71, 120, 0.3);
+  color: #061f33;
+  box-shadow: inset 0 1px 2px rgba(8, 71, 120, 0.05);
+}
+
+.theme-blue-light .dark-modal.direct-message-modal .direct-message-composer textarea::placeholder {
+  color: #607d94;
+  opacity: 1;
+}
+
+.theme-blue-light .direct-message-composer > button {
+  background: #0d67b5;
+  box-shadow: 0 8px 18px rgba(13, 103, 181, 0.28);
+  color: #ffffff;
+}
+
 .theme-blue-light .notifications-modal {
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(230, 245, 255, 0.94)),
