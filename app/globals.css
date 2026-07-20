@@ -106,6 +106,7 @@ a {
 }
 
 .theme-blue-light {
+  color-scheme: only light;
   --bg: #eff8ff;
   --panel: #ffffff;
   --panel-soft: #dbeeff;
@@ -123,6 +124,12 @@ a {
     radial-gradient(circle at 12% 18%, rgba(77, 171, 247, 0.44), transparent 32%),
     radial-gradient(circle at 86% 12%, rgba(186, 230, 253, 0.84), transparent 36%),
     linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(225, 245, 255, 0.74) 44%, #ccecff 100%);
+}
+
+.screen-shell.theme-blue-light {
+  background-color: #eaf6ff;
+  color-scheme: only light;
+  forced-color-adjust: none;
 }
 
 .theme-aurora {
@@ -192,14 +199,32 @@ a {
 }
 
 .theme-blue-light .dashboard-card {
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(25, 92, 145, 0.2);
+  box-shadow: 0 12px 30px rgba(39, 112, 168, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .theme-blue-light .dashboard-card-primary,
 .theme-blue-light .dashboard-today-card {
   background:
-    linear-gradient(135deg, rgba(25, 118, 210, 0.16), rgba(255, 255, 255, 0.56)),
-    rgba(255, 255, 255, 0.7);
+    linear-gradient(135deg, rgba(95, 182, 246, 0.22), rgba(255, 255, 255, 0.88)),
+    #f7fcff;
+  border-color: rgba(25, 92, 145, 0.22);
+  box-shadow: 0 14px 34px rgba(39, 112, 168, 0.12);
+}
+
+.theme-blue-light .daily-message-card {
+  background:
+    linear-gradient(135deg, rgba(85, 177, 244, 0.2), rgba(255, 255, 255, 0.86)),
+    #f4fbff;
+  border-color: rgba(25, 92, 145, 0.22);
+  box-shadow: 0 14px 34px rgba(39, 112, 168, 0.11);
+}
+
+.theme-blue-light .daily-message-icon {
+  background: #d9efff;
+  border-color: rgba(18, 109, 192, 0.24);
+  color: #126dc0;
 }
 
 .theme-blue-light .inside-row,

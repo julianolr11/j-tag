@@ -3062,6 +3062,18 @@ export default function HomePage() {
   const currentTheme = themePreview ?? activeResident?.theme ?? selectedResident?.theme ?? "default";
   const screenShellClassName = getScreenShellClass(currentTheme);
 
+  useEffect(() => {
+    const isLightTheme = currentTheme === "blue-light";
+    document.documentElement.style.colorScheme = isLightTheme ? "only light" : "dark";
+    let themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!themeColor) {
+      themeColor = document.createElement("meta");
+      themeColor.name = "theme-color";
+      document.head.appendChild(themeColor);
+    }
+    themeColor.content = isLightTheme ? "#eaf6ff" : "#050505";
+  }, [currentTheme]);
+
   function recordActivity(
     kind: ActivityEvent["kind"],
     title: string,
